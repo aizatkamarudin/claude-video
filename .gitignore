@@ -1,0 +1,7 @@
+promo/out/_frames/
+promo/out/draft.mp4
+promo/out/*.render.json
+promo/ref/ref.mp4
+promo/ref/ana/frame_*.png
+promo/ref/ana/sheet_*.png
+__pycache__/

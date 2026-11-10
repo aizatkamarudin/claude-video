@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<!-- Rungkai Kusut · "Satu benang" — 1080×1920 TikTok / Reels promo. Built with the onetake method (lib: motion.js, PolyForm NC). -->
+<html lang="ms">
+<head>
+<meta charset="utf-8">
+<title>Rungkai Kusut · Satu benang</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+html,body{margin:0;width:1080px;height:1920px;overflow:hidden;background:#F4EFE5}
+canvas{position:absolute;left:0;top:0;width:1080px;height:1920px}
+#hud{position:absolute;left:12px;bottom:8px;font:20px monospace;color:#c00;display:none}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="hud"></div>
+<script src="motion.js"></script>
+<script>
+'use strict';
+const { clamp, lerp, seg, sstep, ssstep, ease, spring, spline } = OM;
+const W = 1080, H = 1920, DUR = 21;
+// TikTok + Reels shared safe zone (1080×1920): top 250 (status / tabs / IG header), bottom 480 (caption, audio, nav),
+// right 150 (like / comment / share rail), left 72. Everything that must be read lives inside it.
+const SAFE = { x0: 72, x1: 930, y0: 250, y1: 1440 };
+const CX = (SAFE.x0 + SAFE.x1) / 2;   // 501 — the optical centre of the safe zone, not of the frame
+const C = {
+  ground: '#F4EFE5', deep: '#E8E1D4', card: '#FFFFFF', line: '#DCD3C3', dot: '#CFC6B5', mute: '#5D6782',
+  ink: '#1B2A4A', thread: '#1b2a4b', teal: '#1E7A6C', tealL: '#E1F1EE', mint: '#7FD8B0',
+  pink: '#E46F92', pinkD: '#C2456B', pinkL: '#FBE7EE', amber: '#F2B544',
+};
+const F = {
+  sans: (w, px) => `${w} ${px}px Jakarta`,
+  serif: px => `400 ${px}px Serif`,
+  ital: px => `italic 400 ${px}px Serif`,
+};
+const Q = new URLSearchParams(location.search);
+const cv = document.getElementById('cv'), g = cv.getContext('2d');
+const DPR = window.devicePixelRatio || 1;
+cv.width = W * DPR; cv.height = H * DPR;
+
+// ───────────────────────── timeline (seconds) ─────────────────────────
+const T = {
+  hook1: 0.12, hook2: 0.46, hook3: 0.80, hookQ: 1.25,       // three pains, then the question
+  grab: 2.75, pull: 2.95, pulled: 4.15, release: 4.35,       // the finger pulls the thread straight
+  rungkai: 3.15, tableIn: 4.2, sub1: 5.2, badge: 5.5,         // the table grows under the line
+  dash: 6.25, dashHead: 6.45, sub2: 7.35,                      // the line becomes the chart
+  restA: 8.45, flow: 9.95, flowHead: 10.05,                    // dead still, then pour down
+  burst: 12.55, cta: 14.0, tap: 16.0, end: 17.0,
+};
+const BURST = [[12.55, 'Data.'], [12.85, 'Dashboard.'], [13.15, 'Automasi.'], [13.45, 'Apps.'], [13.75, 'AI.']];
+const FLOW_Y = 1340;    // the flow section sits this far below the dashboard in the world
+const END_Y = 4000;     // the burst, the checker and the lockup sit here
+
+// ───────────────────────── the thread: one element, every shape ─────────────────────────
+const N = 360;
+function resample(poly, n = N) {             // even arc-length samples of a polyline
+  const L = [0]; for (let i = 1; i < poly.length; i++) L.push(L[i - 1] + Math.hypot(poly[i][0] - poly[i - 1][0], poly[i][1] - poly[i - 1][1]));
+  const tot = L[L.length - 1], out = []; let j = 0;
+  for (let i = 0; i < n; i++) {
+    const d = tot * i / (n - 1); while (j < L.length - 2 && L[j + 1] < d) j++;
+    const u = (d - L[j]) / ((L[j + 1] - L[j]) || 1); out.push([lerp(poly[j][0], poly[j + 1][0], u), lerp(poly[j][1], poly[j + 1][1], u)]);
+  }
+  return out;
+}
+function catmull(pts, per = 24) {
+  const out = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+    for (let k = 0; k < per; k++) {
+      const u = k / per, u2 = u * u, u3 = u2 * u;
+      out.push([0.5 * (2 * p1[0] + (-p0[0] + p2[0]) * u + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * u2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * u3),
+                0.5 * (2 * p1[1] + (-p0[1] + p2[1]) * u + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * u2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * u3)]);
+    }
+  }
+  out.push(pts[pts.length - 1]); return out;
+}
+// the tangle: a scribble that breathes. Free ends at both sides; the finger takes the right one.
+const TANG = { cx: 500, cy: 1050, end: [880, 1330], start: [130, 820] };
+function scribble(s, t) {
+  const a = 2 * Math.PI * s, b = 0.6 * Math.sin(1.3 * t + s * 9) ;
+  return [TANG.cx + 250 * Math.sin(a * 3 + 0.6 + 0.05 * b) + 105 * Math.sin(a * 7 + 1.9) + 42 * Math.sin(a * 15 + 0.3 + 0.2 * b) + 5 * Math.sin(2.3 * t + s * 31),
+          TANG.cy + 190 * Math.sin(a * 2 + 2.1) + 95 * Math.cos(a * 6 + 0.4 + 0.05 * b) + 40 * Math.sin(a * 13 + 1.1) + 5 * Math.cos(1.9 * t + s * 27)];
+}
+function tangle(t) {
+  const P = [];
+  for (let i = 0; i < N; i++) {
+    const s = i / (N - 1); let p = scribble(s, t);
+    if (s > 0.93) { const u = seg(s, 0.93, 1), q = scribble(0.93, t); p = [lerp(p[0], lerp(q[0], TANG.end[0], u), ssstep(0, 1, u)), lerp(p[1], lerp(q[1], TANG.end[1], u), ssstep(0, 1, u))]; }
+    if (s < 0.05) { const u = 1 - seg(s, 0, 0.05), q = scribble(0.05, t); p = [lerp(p[0], lerp(q[0], TANG.start[0], u), ssstep(0, 1, u)), lerp(p[1], lerp(q[1], TANG.start[1], u), ssstep(0, 1, u))]; }
+    P.push(p);
+  }
+  return P;
+}
+const LINE_Y = 760, TBL = { x0: 110, x1: 890 };
+const STRAIGHT = resample([[TBL.x0, LINE_Y], [TBL.x1, LINE_Y]]);
+// chart: seven days of sales inside the dashboard card
+const VALS = [30, 44, 38, 57, 50, 71, 86];
+const CH = { x0: 150, x1: 860, y0: 985, y1: 1330 };
+const CPTS = VALS.map((v, i) => [CH.x0 + i * (CH.x1 - CH.x0) / 6, CH.y1 - v / 100 * (CH.y1 - CH.y0)]);
+const CHART = resample(catmull(CPTS));
+// flow: a stepper line down the left gutter, one node per process
+const FX = 150, FTOP = 1690 + 0, FBOT = 2960;
+const FLOW = resample([[FX, FTOP], [FX, FBOT]]);
+const NODES = [
+  { y: 2045, a: 'Borang kertas', b: 'Borang digital' },
+  { y: 2330, a: 'Kelulusan WhatsApp', b: 'Workflow automatik' },
+  { y: 2615, a: 'Taip semula data', b: 'Sistem bersambung' },
+];
+// the gauge (Data Kusut Checker) and the lockup line
+const GA = { cx: CX, cy: END_Y + 1030, r: 290 };
+const ARC = resample(Array.from({ length: 121 }, (_, i) => { const a = Math.PI + Math.PI * i / 120; return [GA.cx + GA.r * Math.cos(a), GA.cy + GA.r * Math.sin(a)]; }));
+const MARK_Y = END_Y + 905;
+let MARKLINE = null, UNDER = [];   // measured in __ready
+
+// a stage re-targets every point, staggered along the thread (dir +1: from s=0, −1: from s=1)
+function morph(A, B, t, t0, d, st, dir, curve) {
+  const out = new Array(N);
+  for (let i = 0; i < N; i++) {
+    const s = i / (N - 1), lag = st * (dir > 0 ? s : 1 - s), k = curve(seg(t, t0 + lag, t0 + lag + d - st));
+    out[i] = [lerp(A[i][0], B[i][0], k), lerp(A[i][1], B[i][1], k)];
+  }
+  return out;
+}
+function underlineFor(t) {   // burst: the thread is the underline of the current word, snapping width on each cut
+  const { i } = OM.staccato(t, BURST); const u = UNDER[Math.max(0, i)], prev = UNDER[Math.max(0, i - 1)];
+  const tc = BURST[Math.max(0, i)][0], k = spring(t - tc, 0.45, 30), w = lerp(i > 0 ? prev.w : u.w * 0.6, u.w, k);
+  const y = END_Y + 960 + 34, wob = OM.ring(t - tc, 9, 34) * 16;
+  return Array.from({ length: N }, (_, j) => { const s = j / (N - 1); return [CX - w / 2 + w * s, y + wob * Math.sin(Math.PI * s)]; });
+}
+function threadAt(t) {
+  if (t < T.pull) return tangle(t);
+  if (t < T.dash) {
+    // pulled from its right end: the end rides the finger, the rest straightens behind it
+    const A = tangle(Math.min(t, T.pull + 0.4)); const P = morph(A, STRAIGHT, t, T.pull, 1.2, 0.62, -1, ease.cubicInOut);
+    const ring = OM.ring(t - T.pulled, 6, 20) * 22;   // the line twangs when it comes taut
+    if (t > T.pulled) for (let i = 0; i < N; i++) P[i][1] += ring * Math.sin(Math.PI * i / (N - 1));
+    return P;
+  }
+  if (t < T.flow) return morph(STRAIGHT, CHART, t, T.dash, 1.0, 0.35, +1, ease.expoOut);
+  if (t < T.burst) return morph(CHART, FLOW, t, T.flow, 2.0, 1.35, +1, ease.cubicInOut);
+  if (t < T.cta) return underlineFor(t);
+  if (t < T.end) return morph(underlineFor(T.cta - 0.001), ARC, t, T.cta, 0.8, 0.2, -1, ease.expoOut);
+  return morph(ARC, MARKLINE, t, T.end, 0.9, 0.25, +1, ease.expoInOut);
+}
+// node i is reached when the pour passes its height
+const nodeT = i => { const s = (NODES[i].y + FLOW_Y * 0 - FTOP) / (FBOT - FTOP); return T.flow + 1.35 * s + 0.4; };
+
+// ───────────────────────── messy fragments riding the tangle → clean cells ─────────────────────────
+const COLS = [120, 362, 880];
+const ROWS = [905, 1005, 1105, 1205];
+const TABLE = [['12 Mac', 'Shah Alam', '1,250.00'], ['13 Mac', 'Shah Alam', '2,480.00'], ['14 Mac', 'Klang', '1,960.00'], ['15 Mac', 'Subang', '3,120.00']];
+const FRAG = [
+  { txt: '12/3/24', s: 0.13, cell: [0, 0] }, { txt: 'shah alam ', s: 0.30, cell: [0, 1] }, { txt: 'RM 1,250', s: 0.45, cell: [0, 2] },
+  { txt: '2024-03-13', s: 0.57, cell: [1, 0] }, { txt: 'SHAH ALAM', s: 0.70, cell: [1, 1] }, { txt: '"2480"', s: 0.82, cell: [1, 2] },
+  { txt: '#N/A', s: 0.22, cell: null }, { txt: 'duplicate', s: 0.64, cell: null },
+];
+const hopT = i => T.tableIn + 0.05 + i * 0.07;
+
+// ───────────────────────── camera ─────────────────────────
+const KEYS = [
+  { t: 0, x: 520, y: 1010, zoom: 1.07 },
+  { t: 2.7, x: 530, y: 1000, zoom: 1.04, curve: ease.sineInOut },
+  { t: 4.25, x: 540, y: 960, zoom: 1.0, curve: ease.sineInOut },            // follows the pull, ~0.1 s ahead of the twang
+  { t: 6.25, x: 540, y: 960, zoom: 1.0 },
+  { t: 7.1, x: 540, y: 975, zoom: 1.0, curve: ease.cubicInOut },
+  { t: 10.0, x: 540, y: 975, zoom: 1.0 },
+  { t: 10.85, x: 540, y: 960 + FLOW_Y, zoom: 1.0, curve: ease.expoInOut },  // whips down with the pour
+  { t: 12.0, x: 540, y: 960 + FLOW_Y + 20, zoom: 1.0, curve: ease.sineInOut },
+  { t: 12.549, x: 540, y: 960 + FLOW_Y + 20, zoom: 1.0 },
+  { t: 12.55, x: 540, y: 960 + END_Y, zoom: 1.0 },                           // hard cut into the burst
+  { t: 16.5, x: 540, y: 960 + END_Y, zoom: 1.0 },
+  { t: 17.0, x: 540, y: 960 + END_Y - 10, zoom: 1.03, curve: ease.cubicInOut },
+  { t: 18.2, x: 540, y: 960 + END_Y, zoom: 1.0, curve: ease.cubicInOut },
+];
+const HITS = [[1.3, 7, 9], [4.15, 9, 8], [6.35, 5, 10], [12.55, 8, 10], [13.75, 10, 9], [16.45, 8, 9], [17.62, 6, 9]];
+const handEnv = t => sstep(0.05, 0.4, t) * (1 - sstep(2.5, 2.9, t)) + sstep(10.7, 11.0, t) * (1 - sstep(11.9, 12.3, t));
+function camAt(t) {
+  const c = OM.camera(t, KEYS, { W, H }), e = handEnv(t) * 4.5;
+  let x = c.x + e * (Math.sin(1.7 * t) + 0.6 * Math.sin(2.9 * t + 1)) / c.zoom, y = c.y + e * (Math.sin(1.3 * t + 2) + 0.5 * Math.sin(3.3 * t)) / c.zoom, rot = c.rot;
+  for (const [th, amp, decay] of HITS) { const s = OM.shake(t, th, { amp, decay, seed: Math.round(th * 100) }); x += s.x / c.zoom; y += s.y / c.zoom; rot += s.rot; }
+  return { x, y, zoom: c.zoom, rot };
+}
+
+// ───────────────────────── the finger (the cause) ─────────────────────────
+const FING = [
+  { t: 2.35, x: 990, y: 1520 }, { t: T.grab, x: TANG.end[0], y: TANG.end[1] }, { t: T.pull, x: TANG.end[0], y: TANG.end[1] },
+  { t: T.pulled, x: TBL.x1, y: LINE_Y }, { t: T.release + 0.5, x: 960, y: 640 },
+];
+const FING2 = [{ t: 15.35, x: 1000, y: END_Y + 1560 }, { t: 15.92, x: CX + 120, y: END_Y + 1342 }, { t: 16.4, x: CX + 120, y: END_Y + 1342 }, { t: 16.9, x: 1000, y: END_Y + 1520 }];
+function finger(t) {
+  if (t > 2.35 && t < T.release + 0.5) {
+    const p = spline(FING, t), down = t >= T.grab && t <= T.release ? 1 : 0;
+    const op = sstep(2.35, 2.6, t) * (1 - sstep(T.release + 0.1, T.release + 0.45, t));
+    return { x: p[0], y: p[1], op, down: sstep(T.grab - 0.08, T.grab + 0.05, t) * (1 - sstep(T.release, T.release + 0.12, t)), tap: T.grab };
+  }
+  if (t > 15.35 && t < 16.9) {
+    const p = spline(FING2, t), op = sstep(15.35, 15.6, t) * (1 - sstep(16.45, 16.85, t));
+    return { x: p[0], y: p[1], op, down: sstep(T.tap - 0.06, T.tap, t) * (1 - sstep(T.tap + 0.12, T.tap + 0.24, t)), tap: T.tap };
+  }
+  return null;
+}
+
+// ───────────────────────── drawing helpers ─────────────────────────
+function txt(s, x, y, font, color, { align = 'left', op = 1, sx = 1, sy = 1, dy = 0, base = 'alphabetic', track = 0 } = {}) {
+  if (op <= 0.003) return;
+  g.save(); g.globalAlpha *= clamp(op); g.font = font; g.fillStyle = color; g.textAlign = align; g.textBaseline = base;
+  if (track) g.letterSpacing = track + 'px';
+  g.translate(x, y + dy); g.scale(sx, sy); g.fillText(s, 0, 0); g.restore();
+}
+function rrect(x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
+function card(x, y, w, h, r, op, fill = C.card, shadow = true) {
+  if (op <= 0.003) return;
+  g.save(); g.globalAlpha *= op;
+  if (shadow) { g.shadowColor = 'rgba(27,42,74,0.14)'; g.shadowBlur = 50 * DPR; g.shadowOffsetY = 18 * DPR; }
+  rrect(x, y, w, h, r); g.fillStyle = fill; g.fill(); g.restore();
+}
+function chip(s, x, y, font, fg, bg, op = 1, sc = 1, padX = 18, h = 52) {
+  if (op <= 0.003) return;
+  g.save(); g.font = font; const w = g.measureText(s).width + padX * 2; g.globalAlpha *= op;
+  g.translate(x, y); g.scale(sc, sc); rrect(-w / 2, -h / 2, w, h, h / 2); g.fillStyle = bg; g.fill();
+  g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(s, 0, 2); g.restore();
+  return w;
+}
+// a headline line: lands with wordRise, leaves with liftOut
+function head(s, x, y, font, color, tIn, tOut, t, opts = {}) {
+  if (t < tIn || t > tOut + 0.3 || (tIn < T.burst && t >= T.burst && tOut >= T.burst - 0.01)) return;
+  const r = OM.wordRise(t, tIn, { dist: 34, omega: 20 }), o = OM.liftOut(t, tOut, { dur: 0.24, dist: 60 });
+  txt(s, x, y, font, color, { ...opts, op: r.op * o.op, dy: r.y + o.dy, sx: r.s * o.s, sy: r.s * o.s });
+}
+const W_ = (s, font) => { g.save(); g.font = font; const w = g.measureText(s).width; g.restore(); return w; };
+
+// ───────────────────────── seek ─────────────────────────
+let CAM, VIEW, TRK = {};
+function seek(t) {
+  t = clamp(t, 0, DUR);
+  g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  g.globalAlpha = 1; g.fillStyle = C.ground; g.fillRect(0, 0, W, H);
+  CAM = camAt(t); VIEW = OM.view(CAM, { W, H });
+  const setM = M => g.setTransform(M[0] * DPR, M[1] * DPR, M[2] * DPR, M[3] * DPR, M[4] * DPR, M[5] * DPR);
+
+  // far lattice: a data grid the camera slides against
+  const G = OM.lattice(CAM, { depth: 1.2, spacing: 54, px: 2.2, W, H }); setM(G.matrix);
+  g.fillStyle = C.dot; g.globalAlpha = 0.55; g.beginPath();
+  for (let x = G.x0; x <= G.x1; x += G.spacing) for (let y = G.y0; y <= G.y1; y += G.spacing) { g.moveTo(x + G.r, y); g.arc(x, y, G.r, 0, 6.2832); }
+  g.fill(); g.globalAlpha = 1;
+
+  setM(VIEW);
+  const P = threadAt(t);
+  // the thread first, always the same stroke style — it is the one thing that survives every boundary
+  g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = C.thread;
+  g.lineWidth = t < T.pull ? 6 : t < T.flow ? lerp(6, 7, sstep(T.dash, T.dash + 0.5, t)) : 7;
+  g.beginPath(); g.moveTo(P[0][0], P[0][1]); for (let i = 1; i < N; i++) g.lineTo(P[i][0], P[i][1]); g.stroke();
+  TRK.thread = P;
+
+  drawTableAndDash(t, P);
+  drawFlow(t, P);
+  drawEnd(t, P);
+
+  // the finger, in the world (it is the cause)
+  const f = finger(t);
+  if (f) {
+    g.save(); g.globalAlpha = f.op;
+    const pr = t - f.tap; if (pr > 0 && pr < 0.6) { g.beginPath(); g.arc(f.x, f.y, 40 + pr * 150, 0, 6.2832); g.strokeStyle = C.ink; g.globalAlpha = f.op * 0.35 * (1 - pr / 0.6); g.lineWidth = 4; g.stroke(); g.globalAlpha = f.op; }
+    const r = 44 - 8 * f.down;
+    g.shadowColor = 'rgba(27,42,74,0.25)'; g.shadowBlur = 24 * DPR; g.shadowOffsetY = 8 * DPR;
+    g.beginPath(); g.arc(f.x, f.y, r, 0, 6.2832); g.fillStyle = 'rgba(255,255,255,0.78)'; g.fill(); g.shadowColor = 'transparent';
+    g.lineWidth = 5; g.strokeStyle = C.ink; g.stroke();
+    g.beginPath(); g.arc(f.x, f.y, 11 + 5 * f.down, 0, 6.2832); g.fillStyle = C.ink; g.fill();
+    g.restore(); TRK.finger = [f.x, f.y];
+  } else TRK.finger = null;
+
+  // screen space: headlines live in the safe zone whatever the camera does
+  g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  drawHeadlines(t);
+  if (Q.has('safe')) drawSafe();
+  if (Q.has('hud')) { const h = document.getElementById('hud'); h.style.display = 'block'; h.textContent = t.toFixed(2) + 's'; }
+  return true;
+}
+
+function drawHeadlines(t) {
+  const L = SAFE.x0 + 8;
+  // hook: three pains, fast, small; then the question, big
+  head('Excel bersepah.', L, 352, F.sans(800, 60), C.ink, T.hook1, T.pull - 0.05, t);
+  head('PDF berlambak.', L, 430, F.sans(800, 60), C.ink, T.hook2, T.pull - 0.01, t);
+  head('WhatsApp tak henti.', L, 508, F.sans(800, 60), C.ink, T.hook3, T.pull + 0.03, t);
+  if (t >= T.hookQ && t < T.pull + 0.4) {
+    const r = OM.wordRise(t, T.hookQ, { dist: 40, omega: 18 }), o = OM.liftOut(t, T.pull + 0.07, { dur: 0.24, dist: 60 });
+    const op = r.op * o.op, dy = r.y + o.dy;
+    txt('Data anda', L, 640, F.serif(104), C.ink, { op, dy });
+    const im = OM.impact(t, T.hookQ + 0.06, { sqx: 0.08, sqy: 0.1 });
+    let x = L + W_('Data anda ', F.serif(104)); const kb = Math.max(0, t - T.pull + 0.12);
+    'kusut?'.split('').forEach((ch, i) => {
+      const o = i - 2.5, w = W_(ch, F.ital(104));
+      g.save(); g.translate(x + w / 2 + o * 260 * kb + 120 * kb, 640 + r.y - 30 + 900 * kb * kb - 260 * kb * Math.abs(Math.sin(i * 1.7))); g.rotate(o * 1.4 * kb);
+      txt(ch, -w / 2, 30, F.ital(104), C.pinkD, { op: r.op * (1 - sstep(0.2, 0.45, kb)), sx: im.sx, sy: im.sy }); g.restore(); x += w;
+    });
+  }
+  // rungkai
+  head('Kami rungkaikan.', L, 400, F.serif(110), C.ink, T.rungkai, T.dash - 0.05, t);
+  head('Bersih. Tersusun. Satu sumber.', L, 488, F.sans(700, 40), C.teal, T.sub1, T.dash, t);
+  // dashboard
+  head('Dashboard', L, 380, F.serif(110), C.ink, T.dashHead, T.flow - 0.05, t);
+  head('yang jelas.', L, 486, F.ital(110), C.teal, T.dashHead + 0.12, T.flow - 0.02, t);
+  // (from the reference) every source, hard-cut in a pill, then melted into one view
+  if (t >= T.sub2 && t < T.sub2 + 0.9) {
+    const { word, i } = OM.staccato(t, [[T.sub2, 'Setiap cawangan.'], [T.sub2 + 0.3, 'Setiap invois.'], [T.sub2 + 0.6, 'Setiap akaun.']]);
+    const im = OM.impact(t, T.sub2 + 0.3 * i, { sqx: 0.06, sqy: 0.08 }), w = W_(word, F.sans(800, 40)) + 44;
+    chip(word, L + w / 2, 560, F.sans(800, 40), '#FFFFFF', C.ink, 1, im.sx, 22, 70);
+  }
+  head('→ satu dashboard.', L, 576, F.sans(800, 46), C.teal, T.sub2 + 0.9, T.flow, t);
+  // flow
+  head('Proses manual?', L, 380, F.serif(110), C.ink, T.flowHead + 0.35, T.burst - 0.001, t);
+  head('Kami digitalkan.', L, 486, F.ital(110), C.teal, T.flowHead + 0.5, T.burst - 0.001, t);
+  // checker
+  head('Excel anda', L, 380, F.serif(104), C.ink, T.cta + 0.1, T.end, t);
+  head('sekusut mana?', L, 482, F.ital(104), C.pinkD, T.cta + 0.2, T.end + 0.03, t);
+}
+
+function drawTableAndDash(t, P) {
+  if (t < 0 || t > T.flow + 2.2) return;
+  // fragments: chips riding the thread, then hopping into their cells and coming out clean
+  FRAG.forEach((fr, i) => {
+    const idx = Math.round(fr.s * (N - 1)), p = t < T.tableIn ? P[idx] : null;
+    const ride = t < T.tableIn ? P[idx] : threadAt(T.tableIn - 0.001)[idx];
+    if (fr.cell === null) {   // rubbish: shaken loose by the pull, falls out of the frame
+      const tf = T.pull + 0.25 + i * 0.02, k = Math.max(0, t - tf), y = ride[1] + 0.5 * 2600 * k * k, op = 1 - sstep(tf + 0.25, tf + 0.6, t);
+      if (op > 0) chip(fr.txt, ride[0] + k * 60, y - 40, F.sans(700, 30), C.pinkD, C.pinkL, op * sstep(0.0, 0.25, t), 1, 16, 50);
+      return;
+    }
+    const [r, c] = fr.cell, th = hopT(i), land = th + 0.42;
+    const cellX = c === 2 ? COLS[2] : COLS[c], cellY = ROWS[r];
+    if (t < th) { chip(fr.txt, ride[0], ride[1] - 40, F.sans(700, 30), C.pinkD, C.pinkL, sstep(0.0, 0.25, t), 1, 16, 50); return; }
+    if (t < land) {
+      const h = OM.hop(t, th, land, { x: ride[0], y: ride[1] - 40 }, { x: c === 2 ? cellX - 90 : cellX + 90, y: cellY - 12 }, { height: 120 });
+      chip(fr.txt, h.x, h.y, F.sans(700, 30), C.pinkD, C.pinkL, 1 - 0.3 * h.k, 1 - 0.1 * h.k, 16, 50); return;
+    }
+  });
+  // the table card grows under the line, rows drop out of it like copies of the thread
+  if (t >= T.tableIn - 0.05 && t < T.dash + 1.2) {
+    const A = { x: 90, y: 700, w: 820, h: 620, r: 28 }, B = { x: 90, y: 660, w: 820, h: 790, r: 28 };
+    const m = t < T.dash ? A : OM.morphRect(t, T.dash, T.dash + 0.7, A, B, { curve: ease.expoOut });
+    const pop = OM.popIn(t, T.tableIn - 0.05, { rise: 0, s0: 0.97 });
+    g.save(); g.globalAlpha = 1; g.translate(m.x + m.w / 2, m.y + m.h / 2); g.scale(pop.s, pop.s); g.translate(-(m.x + m.w / 2), -(m.y + m.h / 2));
+    card(m.x, m.y, m.w, m.h, m.r, pop.op);
+    g.restore();
+  }
+  if (t >= T.dash + 0.69 && t <= T.flow + 2.2) {   // the dashboard card stays in the world; the camera leaves it
+    card(90, 660, 820, 790, 28, 1);
+  }
+  if (t >= T.tableIn && t < T.dash + 0.4) {
+    const out = i => OM.liftOut(t, T.dash + i * 0.03, { dur: 0.22, dist: 30 });
+    // header
+    const hr = OM.wordRise(t, T.tableIn + 0.1), ho = out(0);
+    ['Tarikh', 'Lokasi', 'Jualan (RM)'].forEach((h, c) => txt(h, COLS[c], 820, F.sans(700, 28), C.mute, { align: c === 2 ? 'right' : 'left', op: hr.op * ho.op, dy: hr.y + ho.dy }));
+    for (let r = 0; r < 4; r++) {
+      const ld = spring(t - (T.tableIn + 0.08 + r * 0.07), 0.7, 18), y = lerp(LINE_Y, ROWS[r] + 45, ld), o = out(r + 1);
+      g.save(); g.globalAlpha = o.op * clamp(ld * 3); g.strokeStyle = C.line; g.lineWidth = 2; g.beginPath(); g.moveTo(TBL.x0, y); g.lineTo(TBL.x1, y); g.stroke(); g.restore();
+      for (let c = 0; c < 3; c++) {
+        const fi = FRAG.findIndex(f => f.cell && f.cell[0] === r && f.cell[1] === c);
+        const tl = fi >= 0 ? hopT(fi) + 0.42 : T.tableIn + 0.55 + r * 0.08 + c * 0.04;
+        if (t < tl) continue;
+        const im = OM.impact(t, tl, { sqx: 0.1, sqy: 0.14 }), w = OM.wordRise(t, tl, { dist: fi >= 0 ? 0 : 20 });
+        txt(TABLE[r][c], COLS[c], ROWS[r] + 10, F.sans(c === 0 ? 500 : 700, 38), C.ink, { align: c === 2 ? 'right' : 'left', op: w.op * o.op, dy: w.y + o.dy, sx: im.sx, sy: im.sy });
+      }
+    }
+    // the proof badge
+    const b = OM.popIn(t, T.badge), bo = out(5);
+    chip('✓  0 duplikasi · 1 format · 1 sumber', CX, 1268 + b.dy + bo.dy, F.sans(700, 30), C.teal, C.tealL, b.op * bo.op, b.s, 22, 58);
+  }
+  // dashboard content
+  if (t >= T.dash) {
+    const fade = 1 - sstep(T.flow + 1.4, T.flow + 1.9, t);
+    if (fade <= 0) return;
+    g.save(); g.globalAlpha = fade;
+    const k1 = OM.popIn(t, T.dash + 0.35), k2 = OM.popIn(t, T.dash + 0.48);
+    txt('JUALAN · MAC 2024', 130, 722, F.sans(700, 24), C.mute, { op: k1.op, dy: k1.dy, track: 2 });
+    card(130, 745, 360, 170, 22, k1.op, C.tealL, false);
+    txt('RM 128k', 158, 830 + k1.dy, F.sans(800, 58), C.ink, { op: k1.op });
+    txt('▲ 18% minggu ini', 160, 880 + k1.dy, F.sans(700, 26), C.teal, { op: k1.op });
+    card(510, 745, 360, 170, 22, k2.op, C.deep, false);
+    txt('Subang', 538, 830 + k2.dy, F.sans(800, 58), C.ink, { op: k2.op });
+    txt('cawangan terbaik', 540, 880 + k2.dy, F.sans(700, 26), C.mute, { op: k2.op });
+    // grid + area under the line
+    const ga = sstep(T.dash + 0.6, T.dash + 1.0, t);
+    g.globalAlpha = fade * ga * 0.8; g.strokeStyle = C.line; g.lineWidth = 2;
+    for (let i = 0; i < 3; i++) { const y = CH.y0 + i * (CH.y1 - CH.y0) / 3; g.beginPath(); g.moveTo(CH.x0, y); g.lineTo(CH.x1, y); g.stroke(); }
+    if (t < T.flow + 0.3) {
+      const af = sstep(T.dash + 0.75, T.dash + 1.15, t) * (1 - sstep(T.flow, T.flow + 0.3, t));
+      g.globalAlpha = fade * af; const gr = g.createLinearGradient(0, CH.y0, 0, CH.y1); gr.addColorStop(0, 'rgba(30,122,108,0.28)'); gr.addColorStop(1, 'rgba(30,122,108,0)');
+      g.fillStyle = gr; g.beginPath(); g.moveTo(CHART[0][0], CH.y1); for (const p of P) g.lineTo(p[0], Math.min(p[1], CH.y1)); g.lineTo(CHART[N - 1][0], CH.y1); g.closePath(); g.fill();
+    }
+    g.globalAlpha = fade;
+    ['Isn', 'Sel', 'Rab', 'Kha', 'Jum', 'Sab', 'Ahd'].forEach((d, i) => txt(d, CPTS[i][0], 1395, F.sans(700, 24), C.mute, { align: 'center', op: ga }));
+    // points pop as the line passes them; the last one is the news
+    if (t < T.flow + 0.2) CPTS.forEach((p, i) => {
+      const tp = T.dash + 0.55 + i * 0.06, k = spring(t - tp, 0.45, 26), op = 1 - sstep(T.flow, T.flow + 0.2, t);
+      if (k <= 0) return; g.globalAlpha = fade * op;
+      g.beginPath(); g.arc(p[0], p[1], (i === 6 ? 15 : 10) * k, 0, 6.2832); g.fillStyle = i === 6 ? C.teal : C.card; g.fill(); g.lineWidth = 5; g.strokeStyle = i === 6 ? C.teal : C.ink; g.stroke();
+    });
+    if (t < T.flow + 0.2) { const b = OM.popIn(t, T.dash + 1.05); chip('+18%', CPTS[6][0] - 20, CPTS[6][1] - 62 + b.dy, F.sans(800, 30), '#fff', C.teal, b.op * (1 - sstep(T.flow, T.flow + 0.2, t)), b.s, 16, 50); }
+    g.restore();
+  }
+}
+
+function drawFlow(t, P) {
+  if (t < T.flow || t >= T.burst) return;
+  NODES.forEach((n, i) => {
+    const tn = nodeT(i), y = n.y + 0;
+    if (t < tn - 0.15) return;
+    const k = spring(t - tn, 0.5, 24), im = OM.impact(t, tn);
+    g.beginPath(); g.arc(FX, y, 22 * clamp(k * 1.2, 0, 1.1), 0, 6.2832); g.fillStyle = C.teal; g.fill();
+    g.save(); g.globalAlpha = clamp(k * 2); g.lineWidth = 4; g.strokeStyle = '#fff'; g.beginPath(); g.moveTo(FX - 9, y); g.lineTo(FX - 2, y + 7); g.lineTo(FX + 10, y - 7); g.stroke(); g.restore();
+    const pc = OM.popIn(t, tn - 0.08, { rise: 0, s0: 0.9, ds: 0.1 });
+    g.save(); g.translate(205, y); g.scale(pc.s * im.sx, pc.s * im.sy); g.translate(-205, -y);
+    card(205, y - 105, 715, 210, 26, pc.op);
+    txt(n.a, 245, y - 22, F.sans(700, 34), C.mute, { op: pc.op });
+    const st = ease.expoOut(seg(t, tn + 0.08, tn + 0.3)), aw = W_(n.a, F.sans(700, 34));
+    if (st > 0) { g.globalAlpha = pc.op; g.strokeStyle = C.pinkD; g.lineWidth = 4; g.beginPath(); g.moveTo(245, y - 33); g.lineTo(245 + aw * st, y - 33); g.stroke(); g.globalAlpha = 1; }
+    const w = OM.wordRise(t, tn + 0.16, { dist: 24 });
+    txt('→ ' + n.b, 245, y + 50, F.sans(800, 46), C.ink, { op: w.op * pc.op, dy: w.y });
+    g.restore();
+  });
+}
+
+function drawEnd(t, P) {
+  if (t < T.burst) return;
+  const Y = END_Y;
+  // burst: hard-cut words over the thread underline
+  if (t < T.cta) {
+    const { word, i } = OM.staccato(t, BURST), tc = BURST[i][0], im = OM.impact(t, tc, { sqx: 0.06, sqy: 0.09 });
+    txt(word, CX, Y + 960, F.sans(800, i === 4 ? 190 : 132), i === 4 ? C.pinkD : C.ink, { align: 'center', sx: im.sx, sy: im.sy, track: -2 });
+  }
+  // the checker
+  if (t >= T.cta && t < T.end + 0.4) {
+    const out = OM.liftOut(t, T.end, { dur: 0.28, dist: 40 });
+    const fill = t < T.cta + 0.55 ? 0 : t < T.tap + 0.05 ? 41 * ease.expoOut(seg(t, T.cta + 0.55, T.cta + 1.3)) : lerp(41, 98, ease.expoOut(seg(t, T.tap + 0.05, T.tap + 0.6)));
+    const good = sstep(T.tap + 0.15, T.tap + 0.45, t);
+    g.save(); g.globalAlpha = out.op; g.translate(0, out.dy);
+    g.lineCap = 'round'; g.lineWidth = 30; g.strokeStyle = good > 0.5 ? C.teal : C.pink;
+    if (fill > 0.2) { g.beginPath(); g.arc(GA.cx, GA.cy, GA.r, Math.PI, Math.PI + Math.PI * fill / 100); g.stroke(); }
+    const n = Math.round(fill), k = OM.popIn(t, T.cta + 0.5);
+    const imn = OM.impact(t, T.tap + 0.6, { sqx: 0.1, sqy: 0.12 });
+    txt(String(n), GA.cx, GA.cy - 60, F.sans(800, 150), C.ink, { align: 'center', op: k.op, dy: k.dy, sx: imn.sx, sy: imn.sy });
+    txt('/ 100', GA.cx, GA.cy - 2, F.sans(700, 32), C.mute, { align: 'center', op: k.op });
+    txt('Sangat kusut', GA.cx, GA.cy + 70, F.sans(800, 44), C.pinkD, { align: 'center', op: k.op * (1 - good) });
+    txt('Jelas ✓', GA.cx, GA.cy + 70, F.sans(800, 44), C.teal, { align: 'center', op: good, dy: (1 - good) * 16 });
+    ['4 format tarikh', '“Shah Alam” ditaip 4 cara', '9 baris berulang'].forEach((s, i) => {
+      const c = OM.popIn(t, T.cta + 0.85 + i * 0.09), cy = Y + 1160 + i * 62;
+      chip(s, CX, cy + c.dy, F.sans(700, 29), lerp(0, 1, good) > 0.5 ? C.mute : C.pinkD, good > 0.5 ? C.deep : C.pinkL, c.op, c.s, 18, 50);
+      const sw = ease.expoOut(seg(t, T.tap + 0.2 + i * 0.07, T.tap + 0.45 + i * 0.07));
+      if (sw > 0) { g.save(); g.font = F.sans(700, 29); const w = g.measureText(s).width; g.strokeStyle = C.mute; g.lineWidth = 3; g.globalAlpha = c.op; g.beginPath(); g.moveTo(CX - w / 2, cy + 2); g.lineTo(CX - w / 2 + w * sw, cy + 2); g.stroke(); g.restore(); }
+    });
+    const bt = OM.popIn(t, T.cta + 1.2), pr = OM.press(t, T.tap, { depth: 0.08 });
+    g.save(); g.translate(CX, Y + 1345); g.scale(bt.s * pr.s, bt.s * pr.s);
+    card(-390, -52, 780, 104, 52, bt.op, pr.active ? C.teal : C.ink, true);
+    txt('Semak data saya — PERCUMA →', 0, 13, F.sans(800, 36), '#FFFFFF', { align: 'center', op: bt.op });
+    g.restore();
+    g.restore();
+  }
+  // lockup: the thread is the line under the name
+  if (t >= T.end + 0.2) {
+    const letters = MARK.letters;
+    letters.forEach((L, i) => {
+      const d = OM.letterDrop(t, T.end + 0.32, i, { stagger: 0.045, dist: 60 });
+      txt(L.ch, L.x, MARK_Y - 40, L.it ? F.ital(124) : F.serif(124), L.it ? C.pinkD : C.ink, { op: d.op, dy: d.y, sx: d.sx, sy: d.sy });
+    });
+    const tg = OM.wordRise(t, T.end + 0.95);
+    txt('Yang kusut, kami rungkai.', CX, MARK_Y + 92, F.ital(54), C.ink, { align: 'center', op: tg.op, dy: tg.y });
+    const top = OM.popIn(t, T.end + 0.75);
+    chip('SEMAKAN DATA 45 MINIT · PERCUMA', CX, Y + 640 + top.dy, F.sans(800, 28), C.teal, C.tealL, top.op, top.s, 24, 58);
+    const u = OM.popIn(t, T.end + 1.15), im = OM.impact(t, T.end + 1.3, { sqx: 0.05, sqy: 0.08 });
+    g.save(); g.translate(CX, Y + 1150); g.scale(u.s * im.sx, u.s * im.sy);
+    card(-330, -58, 660, 116, 58, u.op, C.ink, true);
+    txt('rungkaikusut.com', 0, 17, F.sans(800, 50), '#FFFFFF', { align: 'center', op: u.op });
+    g.restore();
+    const l1 = OM.wordRise(t, T.end + 1.35), l2 = OM.wordRise(t, T.end + 1.45);
+    txt('Data · Dashboard · Digital · AI', CX, Y + 1295, F.sans(800, 38), C.ink, { align: 'center', op: l1.op, dy: l1.y });
+    txt('untuk PKS Malaysia', CX, Y + 1352, F.sans(700, 34), C.mute, { align: 'center', op: l2.op, dy: l2.y });
+  }
+}
+
+function drawSafe() {
+  g.save(); g.fillStyle = 'rgba(228,111,146,0.18)';
+  g.fillRect(0, 0, W, SAFE.y0); g.fillRect(0, SAFE.y1, W, H - SAFE.y1); g.fillRect(0, SAFE.y0, SAFE.x0, SAFE.y1 - SAFE.y0); g.fillRect(SAFE.x1, SAFE.y0, W - SAFE.x1, SAFE.y1 - SAFE.y0);
+  g.strokeStyle = C.pinkD; g.lineWidth = 3; g.setLineDash([12, 10]); g.strokeRect(SAFE.x0, SAFE.y0, SAFE.x1 - SAFE.x0, SAFE.y1 - SAFE.y0);
+  g.restore();
+}
+
+// ───────────────────────── measure, contract ─────────────────────────
+let MARK = { letters: [] };
+function measure() {
+  UNDER = BURST.map(([, w], i) => ({ w: W_(w, F.sans(800, i === 4 ? 190 : 132)) + 20 }));
+  const parts = [['Rungkai ', false], ['Kusut', true]]; let tot = 0; const ws = [];
+  for (const [s, it] of parts) for (const ch of s) { const w = W_(ch, it ? F.ital(124) : F.serif(124)); ws.push({ ch, it, w }); tot += w; }
+  let x = CX - tot / 2; MARK.letters = ws.map(l => { const o = { ch: l.ch, it: l.it, x }; x += l.w; return o; }).filter(l => l.ch !== ' ');
+  MARK.x0 = CX - tot / 2; MARK.x1 = CX + tot / 2;
+  MARKLINE = resample([[MARK.x0 + 10, MARK_Y + 6], [MARK.x1 - 10, MARK_Y + 6]]);
+}
+function events() {   // what the sound needs: contacts with a screen pan and a strength
+  const E = [], pan = x => clamp((x - W / 2) / (W / 2), -1, 1);
+  E.push({ t: T.hook1, kind: 'word', pan: -0.4, v: 0.5 }, { t: T.hook2, kind: 'word', pan: -0.4, v: 0.55 }, { t: T.hook3, kind: 'word', pan: -0.4, v: 0.6 });
+  E.push({ t: T.hookQ, kind: 'hit', pan: 0, v: 0.9 });
+  E.push({ t: T.grab, kind: 'tap', pan: 0.6, v: 0.7 }, { t: T.pull, kind: 'pull', pan: 0.5, v: 1, dur: T.pulled - T.pull }, { t: T.pulled, kind: 'twang', pan: 0.5, v: 1 });
+  E.push({ t: T.rungkai, kind: 'word', pan: -0.3, v: 0.6 });
+  FRAG.forEach((f, i) => { if (f.cell) E.push({ t: hopT(i) + 0.42, kind: 'tick', pan: pan(COLS[f.cell[1]]), v: 0.5, i }); else E.push({ t: T.pull + 0.3, kind: 'drop', pan: 0, v: 0.4 }); });
+  E.push({ t: T.badge, kind: 'pop', pan: 0, v: 0.6 });
+  E.push({ t: T.dash, kind: 'swoosh', pan: 0, v: 0.7 }, { t: T.dash + 0.4, kind: 'pop', pan: -0.4, v: 0.5 });
+  CPTS.forEach((p, i) => E.push({ t: T.dash + 0.55 + i * 0.06, kind: 'note', pan: pan(p[0]), v: 0.35 + i * 0.06, i }));
+  E.push({ t: T.flow + 0.05, kind: 'whoosh', pan: 0, v: 0.9, dur: 0.85 });
+  NODES.forEach((n, i) => E.push({ t: nodeT(i), kind: 'node', pan: -0.5, v: 0.7, i }));
+  BURST.forEach(([tb], i) => E.push({ t: tb, kind: 'stac', pan: 0, v: 0.75 + 0.06 * i, i }));
+  E.push({ t: T.cta, kind: 'swoosh', pan: 0, v: 0.6 }, { t: T.cta + 0.55, kind: 'meter', pan: 0, v: 0.6, dur: 0.75 });
+  E.push({ t: T.tap, kind: 'tap', pan: 0.2, v: 0.8 }, { t: T.tap + 0.05, kind: 'meterUp', pan: 0, v: 0.8, dur: 0.55 }, { t: T.tap + 0.6, kind: 'win', pan: 0, v: 1 });
+  E.push({ t: T.end, kind: 'whoosh', pan: 0, v: 0.6, dur: 0.6 });
+  MARK.letters.forEach((l, i) => { if (i % 3 === 0) E.push({ t: T.end + 0.32 + i * 0.045 + 0.06, kind: 'letter', pan: pan(l.x), v: 0.35 }); });
+  E.push({ t: T.end + 1.3, kind: 'land', pan: 0, v: 1 });
+  return { T, dur: DUR, events: E.sort((a, b) => a.t - b.t) };
+}
+
+// screen points whose travel sizes the shutter
+function trackPts(t) {
+  seek(t); const M = VIEW, pts = [];
+  const P = TRK.thread; for (let i = 0; i < N; i += 15) pts.push(OM.project(M, P[i][0], P[i][1]));
+  if (TRK.finger) pts.push(OM.project(M, TRK.finger[0], TRK.finger[1]));
+  return pts;
+}
+window.__meta = { dur: DUR, fps: 30, cuts: BURST.map(b => b[0]), size: [W, H], safe: SAFE };
+window.__seek = async t => seek(t);
+window.__events = events;
+window.__motion = (t0, t1) => {
+  const a = trackPts(t0), c0 = CAM, b = trackPts(t1), c1 = CAM; trackPts((t0 + t1) / 2); const cm = CAM;
+  let d = OM.screenTravel(c0, c1, cm, { W, H });
+  for (let i = 0; i < Math.min(a.length, b.length); i++) d = Math.max(d, Math.hypot(a[i][0] - b[i][0], a[i][1] - b[i][1]));
+  return d;
+};
+window.__ready = Promise.all([
+  document.fonts.load(F.sans(500, 40)), document.fonts.load(F.sans(700, 40)), document.fonts.load(F.sans(800, 40)),
+  document.fonts.load(F.serif(100)), document.fonts.load(F.ital(100)),
+]).then(() => { measure(); seek(+Q.get('t') || 0); return true; });
+
+if (Q.has('play')) window.__ready.then(() => { const t0 = performance.now(); const loop = () => { seek(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop); }; loop(); });
+</script>
+</body>
+</html>
