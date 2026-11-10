@@ -1,0 +1,18 @@
+660 frames on 2 workers · shutter 180°, captures per frame sized by __motion (gap 6 px, 4–48)
+  39/660  15s
+  74/660  30s
+  119/660  45s
+  166/660  60s
+  201/660  75s
+  244/660  90s
+  288/660  105s
+  320/660  120s
+  359/660  135s
+  391/660  150s
+  432/660  165s
+  455/660  180s
+  505/660  195s
+  564/660  210s
+  651/660  225s
+660 frames, 2947 captures (62 still frames skipped the shutter, 44 kept a cut hard) in 226s on 2 workers; page errors: none
+wrote /home/user/claude-video/promo2/out/draft.mp4

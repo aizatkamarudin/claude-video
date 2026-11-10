@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<!-- Rungkai Kusut · "Satu borang" — process digitalisation promo, 1080×1920 TikTok / Reels. onetake method (motion.js, PolyForm NC). -->
+<html lang="ms">
+<head>
+<meta charset="utf-8">
+<title>Rungkai Kusut · Satu borang</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+html,body{margin:0;width:1080px;height:1920px;overflow:hidden;background:#13203B}
+canvas{position:absolute;left:0;top:0;width:1080px;height:1920px}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script src="motion.js"></script>
+<script>
+'use strict';
+const { clamp, lerp, seg, sstep, ssstep, ease, spring, spline } = OM;
+const W = 1080, H = 1920, DUR = 22;
+const SAFE = { x0: 72, x1: 930, y0: 250, y1: 1440 };   // TikTok + Reels shared safe zone
+const CX = (SAFE.x0 + SAFE.x1) / 2;
+const C = {
+  ground: '#13203B', ground2: '#1B2A4A', dot: '#2E3D63', cream: '#F4EFE5', paper: '#FBF8F2', card: '#FFFFFF',
+  ink: '#1B2A4A', mute: '#5D6782', soft: '#B9C2DA', line: '#E3DCCD', amber: '#F2B544', amberD: '#C98A12',
+  mint: '#7FD8B0', teal: '#1E7A6C', tealL: '#E1F1EE', pink: '#E46F92', pinkD: '#C2456B', pinkL: '#FBE7EE', bezel: '#C9D1E3',
+  link: '#f2b545',   // the one stroke that carries the film (token path / system links)
+};
+const F = { sans: (w, px) => `${w} ${px}px Jakarta`, serif: px => `400 ${px}px Serif`, ital: px => `italic 400 ${px}px Serif` };
+const Q = new URLSearchParams(location.search);
+const cv = document.getElementById('cv'), g = cv.getContext('2d');
+const DPR = window.devicePixelRatio || 1; cv.width = W * DPR; cv.height = H * DPR;
+
+// ───────────────────────── timeline ─────────────────────────
+const T = {
+  q1: 0.1, q2: 0.4, tapPaper: 2.2, fold: 2.35, folded: 3.0, head2: 2.6, sub2: 3.3,
+  tapChip: 3.55, tapAmt: 4.05, type: 4.15, tapUp: 4.95, aiRead: 5.45, tapSend: 6.0,
+  shrink: 6.12, hop: 6.55, land: 7.15, wfHead: 7.0, stat: 9.05, rest: 9.35,
+  toC: 10.3, inC: 10.95, cHead: 10.6, cSub: 11.5,
+  pull: 12.55, pulled: 13.3, chips: 13.05, push: 14.3, pushed: 15.1,
+  calcHead: 15.1, calc: 15.1, result: 15.7, tapCalc: 16.85, iris: 17.0, irisEnd: 17.7, end: 17.75,
+};
+const NODE_T = [7.15, 7.7, 8.25, 8.8];
+const BUBBLES = [
+  { who: 'Aina', s: 'Boss, dah approve claim?', x: 300, y: 700, r: -0.04, t: 0.25 },
+  { who: 'Hafiz', s: 'Resit hilang lah…', x: 700, y: 820, r: 0.05, t: 0.55 },
+  { who: 'Boss', s: 'Borang mana satu?', x: 310, y: 1010, r: 0.03, t: 0.85 },
+  { who: 'Finance', s: 'Tolong sign cepat!', x: 700, y: 1140, r: -0.05, t: 1.1 },
+  { who: 'Aina', s: 'Dah 3 hari tunggu…', x: 320, y: 1300, r: -0.02, t: 1.35 },
+  { who: 'Mei Ling', s: 'Saya taip semula ke?', x: 690, y: 1400, r: 0.04, t: 1.6 },
+];
+// stations in the world: A phone (x 0–1080), B workflow (1100–2180), C system (2200–3280)
+const PH = { x: 298, y: 610, w: 406, h: 830, r: 58 }, SC = { x: 311, y: 623, w: 380, h: 804, r: 46 };
+const PAPER = { x: 270, y: 640, w: 470, h: 640 };
+const PILL = { x: 336, y: 1125, w: 330, h: 72, r: 36 };
+const BX = 1262, NODES = [
+  { y: 720, who: 'Aina · Staf', st: 'Dihantar', tm: '9:02 pg' },
+  { y: 920, who: 'En. Razak · Pengurus', st: 'Diluluskan ✓', tm: '9:03 pg' },
+  { y: 1120, who: 'Kewangan', st: 'Disemak ✓', tm: '9:04 pg' },
+  { y: 1320, who: 'Sistem', st: 'Dibayar ✓', tm: '9:05 pg' },
+];
+const PANEL = { x: 2272, y: 600, w: 858, h: 640 };
+const ROWS = [['#0142', 'Aina', '86.40', 'Dibayar'], ['#0141', 'Hafiz', '32.00', 'Lulus'], ['#0140', 'Mei Ling', '120.00', 'Disemak'], ['#0139', 'Ravi', '54.20', 'Dibayar'], ['#0138', 'Siti', '18.90', 'Dibayar']];
+const ROW_Y = i => 775 + i * 88;
+const CHIPS = [
+  { s: 'Akaun', x: 760, y: 1760 }, { s: 'Gaji', x: 1640, y: 1760 }, { s: 'Bank', x: 2520, y: 1760 },
+  { s: 'Stok', x: 840, y: 2160 }, { s: 'CRM', x: 1640, y: 2160 }, { s: 'Kedai online', x: 2440, y: 2160 },
+];
+const HUB = [1640, 1500];
+const CALC = { x: 2272, y: 1480, w: 858, h: 640 };
+const CAM_CALC = { x: 2740, y: 1760 };
+
+// ───────────────────────── camera ─────────────────────────
+const KEYS = [
+  { t: 0, x: 540, y: 1000, zoom: 1.06 },
+  { t: 2.2, x: 530, y: 990, zoom: 1.03, curve: ease.sineInOut },
+  { t: 3.0, x: 540, y: 980, zoom: 1.0, curve: ease.cubicInOut },
+  { t: 3.45, x: 540, y: 1060, zoom: 1.14, curve: ease.cubicInOut },     // leans in while the finger fills the form
+  { t: 6.05, x: 540, y: 1060, zoom: 1.14 },
+  { t: 6.45, x: 540, y: 1000, zoom: 1.0, curve: ease.cubicInOut },
+  { t: 7.15, x: 1640, y: 960, zoom: 1.0, curve: ease.expoInOut },        // whips with the token
+  { t: 8.9, x: 1640, y: 975, zoom: 1.0, curve: ease.sineInOut },        // rides down the chain
+  { t: 10.3, x: 1640, y: 975, zoom: 1.0 },
+  { t: 10.95, x: 2740, y: 960, zoom: 1.0, curve: ease.expoInOut },
+  { t: 12.55, x: 2740, y: 960, zoom: 1.0 },
+  { t: 13.3, x: 1640, y: 1240, zoom: 0.34, curve: ease.cubicInOut },     // pull back: one system
+  { t: 14.3, x: 1640, y: 1240, zoom: 0.34 },
+  { t: 15.1, x: CAM_CALC.x, y: CAM_CALC.y, zoom: 1.0, curve: ease.expoInOut },
+];
+const HITS = [[0.85, 4, 10], [1.6, 4, 10], [3.0, 6, 9], [6.0, 5, 10], [7.15, 7, 9], [8.8, 5, 10], [10.95, 7, 9], [13.3, 6, 9], [15.1, 6, 9], [16.4, 6, 9]];
+const handEnv = t => sstep(0.05, 0.4, t) * (1 - sstep(1.9, 2.3, t)) + sstep(7.3, 7.6, t) * (1 - sstep(8.7, 9.1, t)) + sstep(11.1, 11.4, t) * (1 - sstep(12.2, 12.5, t));
+function camAt(t) {
+  const c = OM.camera(t, KEYS, { W, H }), e = handEnv(t) * 4.5;
+  let x = c.x + e * (Math.sin(1.7 * t) + 0.6 * Math.sin(2.9 * t + 1)) / c.zoom, y = c.y + e * (Math.sin(1.3 * t + 2) + 0.5 * Math.sin(3.3 * t)) / c.zoom, rot = c.rot;
+  for (const [th, amp, decay] of HITS) { const s = OM.shake(t, th, { amp, decay, seed: Math.round(th * 100) }); x += s.x / c.zoom; y += s.y / c.zoom; rot += s.rot; }
+  return { x, y, zoom: c.zoom, rot };
+}
+
+// ───────────────────────── the finger ─────────────────────────
+const FING = [
+  { t: 1.75, x: 1000, y: 1560 }, { t: T.tapPaper, x: 560, y: 1040 }, { t: 2.9, x: 900, y: 1300 },
+  { t: T.tapChip, x: 400, y: 815 }, { t: T.tapAmt, x: 560, y: 925 }, { t: 4.6, x: 640, y: 1000 }, { t: T.tapUp, x: 500, y: 1120 },
+  { t: 5.5, x: 820, y: 1250 }, { t: T.tapSend, x: 520, y: 1340 }, { t: 6.5, x: 1000, y: 1600 },
+];
+const TAPS = [T.tapPaper, T.tapChip, T.tapAmt, T.tapUp, T.tapSend];
+const FING2 = [{ t: 16.3, x: CAM_CALC.x + 470, y: CAM_CALC.y + 640 }, { t: T.tapCalc, x: CAM_CALC.x + 60, y: CAM_CALC.y + 330 }, { t: 17.3, x: CAM_CALC.x + 60, y: CAM_CALC.y + 330 }];
+function finger(t) {
+  let K, taps, op;
+  if (t > 1.75 && t < 6.5) { K = FING; taps = TAPS; op = sstep(1.75, 2.0, t) * (1 - sstep(6.15, 6.45, t)); }
+  else if (t > 16.3 && t < 17.3) { K = FING2; taps = [T.tapCalc]; op = sstep(16.3, 16.5, t) * (1 - sstep(17.05, 17.25, t)); }
+  else return null;
+  const p = spline(K, t); let down = 0, tap = -9;
+  for (const c of taps) { down = Math.max(down, sstep(c - 0.07, c, t) * (1 - sstep(c + 0.08, c + 0.2, t))); if (t >= c) tap = c; }
+  return { x: p[0], y: p[1], op, down, tap };
+}
+
+// ───────────────────────── helpers ─────────────────────────
+function txt(s, x, y, font, color, { align = 'left', op = 1, sx = 1, sy = 1, dy = 0, base = 'alphabetic', track = 0 } = {}) {
+  if (op <= 0.003) return;
+  g.save(); g.globalAlpha *= clamp(op); g.font = font; g.fillStyle = color; g.textAlign = align; g.textBaseline = base;
+  if (track) g.letterSpacing = track + 'px';
+  g.translate(x, y + dy); g.scale(sx, sy); g.fillText(s, 0, 0); g.restore();
+}
+function rrect(x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
+function card(x, y, w, h, r, op, fill = C.card, shadow = true) {
+  if (op <= 0.003) return;
+  g.save(); g.globalAlpha *= op;
+  if (shadow) { g.shadowColor = 'rgba(5,10,25,0.45)'; g.shadowBlur = 50 * DPR * CAM.zoom; g.shadowOffsetY = 20 * DPR * CAM.zoom; }
+  rrect(x, y, w, h, r); g.fillStyle = fill; g.fill(); g.restore();
+}
+function chip(s, x, y, font, fg, bg, op = 1, sc = 1, padX = 18, h = 52) {
+  if (op <= 0.003) return 0;
+  g.save(); g.font = font; const w = g.measureText(s).width + padX * 2; g.globalAlpha *= op;
+  g.translate(x, y); g.scale(sc, sc); rrect(-w / 2, -h / 2, w, h, h / 2); g.fillStyle = bg; g.fill();
+  g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(s, 0, 2); g.restore(); return w;
+}
+function head(s, x, y, font, color, tIn, tOut, t, opts = {}) {
+  if (t < tIn || t > tOut + 0.3) return;
+  const r = OM.wordRise(t, tIn, { dist: 34, omega: 20 }), o = OM.liftOut(t, tOut, { dur: 0.24, dist: 60 });
+  txt(s, x, y, font, color, { ...opts, op: r.op * o.op, dy: r.y + o.dy, sx: r.s * o.s, sy: r.s * o.s });
+}
+const W_ = (s, font) => { g.save(); g.font = font; const w = g.measureText(s).width; g.restore(); return w; };
+const check = (x, y, s, col = '#fff', lw = 4) => { g.save(); g.strokeStyle = col; g.lineWidth = lw; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath(); g.moveTo(x - 9 * s, y); g.lineTo(x - 2 * s, y + 7 * s); g.lineTo(x + 10 * s, y - 7 * s); g.stroke(); g.restore(); };
+
+// ───────────────────────── the token: the claim itself, carried from the phone to the system ─────────────────────────
+function tokenAt(t) {
+  if (t < T.shrink || t >= T.inC + 0.4) return null;
+  if (t < T.hop) { const m = OM.morphRect(t, T.shrink, T.hop - 0.05, { ...SC }, PILL, { curve: ease.expoOut }); return { ...m, k: m.k, phase: 'shrink' }; }
+  const P = (x, y, w = PILL.w) => ({ x: x - w / 2, y: y - PILL.h / 2, w, h: PILL.h, r: 36 });
+  const BEAD = 72;   // on the chain the claim is a bead on the line; it opens back into the pill for the system
+  if (t < T.land) { const h = OM.hop(t, T.hop, T.land, { x: PILL.x + PILL.w / 2, y: PILL.y + PILL.h / 2 }, { x: BX, y: NODES[0].y }, { height: 260 }); return { ...P(h.x, h.y, lerp(PILL.w, BEAD, ease.cubicInOut(h.k))), phase: 'fly' }; }
+  if (t < T.toC) {   // down the chain, landing on each node with a spring
+    let y = NODES[0].y;
+    for (let i = 1; i < 4; i++) { const k = spring(t - (NODE_T[i] - 0.32), 0.62, 16); y = lerp(y, NODES[i].y, k); }
+    return { ...P(BX, y, BEAD), phase: 'chain' };
+  }
+  if (t < T.inC) { const h = OM.hop(t, T.toC, T.inC, { x: BX, y: NODES[3].y }, { x: PANEL.x + PANEL.w / 2, y: ROW_Y(0) - 12 }, { height: 320 }); return { ...P(h.x, h.y, lerp(BEAD, PILL.w, ease.cubicInOut(h.k))), phase: 'fly' }; }
+  const m = OM.morphRect(t, T.inC, T.inC + 0.35, P(PANEL.x + PANEL.w / 2, ROW_Y(0) - 12), { x: PANEL.x + 16, y: ROW_Y(0) - 52, w: PANEL.w - 32, h: 80, r: 18 }, { curve: ease.expoOut });
+  return { ...m, phase: 'row' };
+}
+
+// ───────────────────────── seek ─────────────────────────
+let CAM, VIEW, TRK = {};
+function seek(t) {
+  t = clamp(t, 0, DUR);
+  g.setTransform(DPR, 0, 0, DPR, 0, 0); g.globalAlpha = 1; g.fillStyle = C.ground; g.fillRect(0, 0, W, H);
+  CAM = camAt(t); VIEW = OM.view(CAM, { W, H });
+  const setM = M => g.setTransform(M[0] * DPR, M[1] * DPR, M[2] * DPR, M[3] * DPR, M[4] * DPR, M[5] * DPR);
+  const G = OM.lattice(CAM, { depth: 1.2, spacing: 54, px: 2.2, W, H }); setM(G.matrix);
+  g.fillStyle = C.dot; g.globalAlpha = 0.9; g.beginPath();
+  for (let x = G.x0; x <= G.x1; x += G.spacing) for (let y = G.y0; y <= G.y1; y += G.spacing) { g.moveTo(x + G.r, y); g.arc(x, y, G.r, 0, 6.2832); }
+  g.fill(); g.globalAlpha = 1;
+  setM(VIEW);
+
+  drawLinks(t);
+  drawPhone(t);
+  drawWorkflow(t);
+  drawSystem(t);
+  drawCalc(t);
+  const tk = tokenAt(t); TRK.token = tk;
+  if (tk) drawToken(t, tk);
+  drawFinger(t);
+
+  g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  drawIrisAndEnd(t);
+  drawHeadlines(t);
+  if (Q.has('safe')) drawSafe();
+  return true;
+}
+
+function drawLinks(t) {   // the system's wiring: the token's road, then every integration — one stroke style
+  if (t < T.pull + 0.2 || t > T.push + 0.5) return;
+  const k = ease.cubicOut(seg(t, T.pull + 0.2, T.pulled)), op = 1 - sstep(T.push, T.push + 0.4, t);
+  const road = [[PH.x + PH.w, 1020], [BX, NODES[0].y], [BX, NODES[3].y], [PANEL.x, PANEL.y + 320]];
+  g.save(); g.globalAlpha = op; g.strokeStyle = C.link; g.lineWidth = 14; g.lineCap = 'round'; g.setLineDash([2, 34]);
+  g.beginPath(); g.moveTo(...road[0]);
+  for (let i = 1; i < road.length; i++) { const a = road[i - 1], b = road[i], u = clamp(k * 3 - (i - 1)); g.lineTo(lerp(a[0], b[0], u), lerp(a[1], b[1], u)); }
+  g.stroke(); g.setLineDash([]);
+  CHIPS.forEach((c, i) => {
+    const tc = T.chips + i * 0.14, u = ease.expoOut(seg(t, tc - 0.12, tc + 0.1)); if (u <= 0) return;
+    g.lineWidth = 10; g.globalAlpha = op * 0.85; g.beginPath(); g.moveTo(...HUB); g.lineTo(lerp(HUB[0], c.x, u), lerp(HUB[1], c.y, u)); g.stroke();
+  });
+  g.restore();
+  // hub
+  const hk = OM.popIn(t, T.chips - 0.2);
+  g.save(); g.globalAlpha = op * hk.op; g.beginPath(); g.arc(HUB[0], HUB[1], 70 * hk.s, 0, 6.2832); g.fillStyle = C.amber; g.fill(); g.restore();
+  CHIPS.forEach((c, i) => {
+    const tc = T.chips + i * 0.14, p = OM.popIn(t, tc, { s0: 0.6, ds: 0.4 }), im = OM.impact(t, tc + 0.05, { sqx: 0.08, sqy: 0.1 });
+    chip(c.s, c.x, c.y + p.dy * 3, F.sans(800, 84), C.ink, C.cream, p.op * op, p.s * im.sx, 48, 160);
+  });
+}
+
+function drawPhone(t) {
+  if (t > T.pushed) return;
+  // the paper → the phone: one container that changes what it is
+  const k = ease.expoInOut(seg(t, T.fold, T.folded));
+  const rot = lerp(-0.06, 0, k), x = lerp(PAPER.x, PH.x, k), y = lerp(PAPER.y, PH.y, k), w = lerp(PAPER.w, PH.w, k), h = lerp(PAPER.h, PH.h, k), r = lerp(6, PH.r, k);
+  const tap = OM.press(t, T.tapPaper, { depth: 0.05 }), cxp = x + w / 2, cyp = y + h / 2;
+  g.save(); g.translate(cxp, cyp); g.rotate(rot); g.scale(tap.s, tap.s); g.translate(-cxp, -cyp);
+  const pin = OM.popIn(t, 0, { rise: 0, s0: 0.98 });
+  card(x, y, w, h, r, pin.op, k < 0.5 ? C.paper : C.bezel, true);
+  if (k > 0.5) { g.save(); g.globalAlpha = clamp((k - 0.5) * 4); rrect(x + w / 2 - 50, y + 22, 100, 10, 5); g.fillStyle = '#9AA6C4'; g.fill(); g.restore(); }
+  if (k > 0.45) { g.globalAlpha = clamp((k - 0.45) * 3); rrect(SC.x + (x - PH.x), SC.y + (y - PH.y), w - 26, h - 26, r - 12); g.fillStyle = C.paper; g.fill(); g.globalAlpha = 1; }
+  // paper face: a form filled by hand, stamped MENUNGGU
+  const pf = 1 - sstep(0.15, 0.5, k);
+  if (pf > 0) {
+    g.save(); g.globalAlpha = pf;
+    txt('BORANG TUNTUTAN', x + 40, y + 72, F.sans(800, 30), C.ink, { track: 2 });
+    for (let i = 0; i < 7; i++) {
+      const ly = y + 140 + i * 62; g.strokeStyle = C.line; g.lineWidth = 3; g.beginPath(); g.moveTo(x + 40, ly); g.lineTo(x + w - 40, ly); g.stroke();
+      g.strokeStyle = '#4A5A86'; g.lineWidth = 3; g.beginPath();
+      for (let j = 0; j <= 30; j++) { const u = j / 30, xx = x + 60 + u * (w - 120) * (0.45 + 0.4 * Math.abs(Math.sin(i * 2.3))); g.lineTo(xx, ly - 14 + 7 * Math.sin(u * 22 + i)); }
+      g.stroke();
+    }
+    g.save(); g.translate(x + w - 150, y + h - 90); g.rotate(-0.22); g.strokeStyle = C.pinkD; g.lineWidth = 5; rrect(-120, -36, 240, 72, 10); g.stroke();
+    txt('MENUNGGU', 0, 13, F.sans(800, 36), C.pinkD, { align: 'center', track: 3 }); g.restore();
+    g.restore();
+  }
+  g.restore();
+  if (k < 0.9 || t > T.hop + 0.2) { drawBubbles(t); return; }
+  // the app (a claim form), filled by the finger
+  const ui = sstep(T.folded - 0.15, T.folded + 0.15, t) * (1 - sstep(T.shrink, T.shrink + 0.15, t));
+  if (ui <= 0) return;
+  g.save(); g.globalAlpha = ui; const L = SC.x + 22;
+  txt('9:41', L, SC.y + 36, F.sans(700, 20), C.ink);
+  txt('Tuntutan Baru', L, SC.y + 98, F.sans(800, 36), C.ink);
+  txt('JENIS', L, SC.y + 150, F.sans(800, 21), C.mute, { track: 2 });
+  let cx = L; ['Perjalanan', 'Makan', 'Lain'].forEach((s, i) => {
+    const on = i === 0 && t >= T.tapChip, pr = i === 0 ? OM.press(t, T.tapChip, { depth: 0.1 }) : { s: 1 };
+    const w = W_(s, F.sans(700, 24)) + 28;
+    g.save(); g.translate(cx + w / 2, SC.y + 190); g.scale(pr.s, pr.s); rrect(-w / 2, -24, w, 48, 24); g.fillStyle = on ? C.teal : C.cream; g.fill();
+    if (!on) { g.strokeStyle = C.line; g.lineWidth = 2; g.stroke(); }
+    txt(s, 0, 9, F.sans(700, 24), on ? '#fff' : C.ink, { align: 'center' }); g.restore(); cx += w + 10;
+  });
+  txt('JUMLAH (RM)', L, SC.y + 262, F.sans(800, 21), C.mute, { track: 2 });
+  rrect(L, SC.y + 278, SC.w - 44, 76, 16); g.fillStyle = C.card; g.fill(); g.strokeStyle = t >= T.tapAmt && t < T.tapUp ? C.teal : C.line; g.lineWidth = 3; g.stroke();
+  const ty = OM.typeOn(t, T.type, '86.40', { cps: 11 });
+  txt(t >= T.type ? ty.str : '0.00', L + 22, SC.y + 330, F.sans(800, 40), t >= T.type ? C.ink : '#C9C2B4');
+  if (t >= T.tapAmt && t < T.tapUp && ty.caret) { const cw = W_(ty.str, F.sans(800, 40)); g.fillStyle = C.teal; g.fillRect(L + 24 + cw, SC.y + 296, 3, 40); }
+  txt('RESIT', L, SC.y + 398, F.sans(800, 21), C.mute, { track: 2 });
+  const UP = { x: L, y: SC.y + 414, w: SC.w - 44, h: 250 };
+  g.save(); rrect(UP.x, UP.y, UP.w, UP.h, 18); g.fillStyle = C.cream; g.fill(); g.setLineDash([10, 8]); g.strokeStyle = '#C9C2B4'; g.lineWidth = 3; g.stroke(); g.restore();
+  if (t < T.tapUp + 0.05) { txt('+ Ambil gambar resit', UP.x + UP.w / 2, UP.y + UP.h / 2 + 8, F.sans(700, 26), C.mute, { align: 'center' }); }
+  else {   // the receipt photo drops in, then the AI reads it
+    const p = OM.popIn(t, T.tapUp + 0.05, { rise: 60, s0: 0.85, ds: 0.15 });
+    g.save(); g.globalAlpha *= p.op; g.translate(UP.x + UP.w / 2, UP.y + UP.h / 2 + p.dy); g.rotate(-0.04); g.scale(p.s, p.s);
+    rrect(-110, -105, 220, 210, 8); g.fillStyle = '#fff'; g.shadowColor = 'rgba(0,0,0,0.18)'; g.shadowBlur = 16 * DPR; g.fill(); g.shadowColor = 'transparent';
+    txt('KEDAI MAKAN ALI', 0, -70, F.sans(800, 15), C.ink, { align: 'center' });
+    for (let i = 0; i < 4; i++) { g.fillStyle = '#D9D3C7'; g.fillRect(-85, -48 + i * 24, 110 - (i % 2) * 30, 8); g.fillRect(45, -48 + i * 24, 40, 8); }
+    txt('JUMLAH  RM 86.40', 0, 75, F.sans(800, 17), C.ink, { align: 'center' });
+    const sc = seg(t, T.tapUp + 0.2, T.aiRead); if (sc > 0 && sc < 1) { g.fillStyle = 'rgba(127,216,176,0.55)'; g.fillRect(-110, -105 + 210 * ease.sineInOut(sc), 220, 6); }
+    g.restore();
+    const ai = OM.popIn(t, T.aiRead);
+    chip('✓ AI baca: RM 86.40', UP.x + UP.w / 2, UP.y + UP.h - 4 + ai.dy, F.sans(800, 25), C.teal, C.tealL, ai.op, ai.s, 18, 46);
+  }
+  const pr = OM.press(t, T.tapSend, { depth: 0.08 });
+  g.save(); g.translate(L + (SC.w - 44) / 2, SC.y + 726); g.scale(pr.s, pr.s);
+  rrect(-(SC.w - 44) / 2, -42, SC.w - 44, 84, 42); g.fillStyle = t >= T.tapSend ? C.teal : C.ink; g.fill();
+  txt('Hantar →', 0, 12, F.sans(800, 32), '#fff', { align: 'center' }); g.restore();
+  g.restore();
+}
+
+function drawBubbles(t) {
+  BUBBLES.forEach((b, i) => {
+    if (t < b.t) return;
+    const p = OM.popIn(t, b.t, { rise: 30, s0: 0.7, ds: 0.3, omega: 22 });
+    // swept into the paper by the tap: the mess goes into the form
+    const gk = ease.expoIn(seg(t, T.tapPaper + 0.02 + i * 0.03, T.tapPaper + 0.32 + i * 0.03));
+    const x = lerp(b.x, PAPER.x + PAPER.w / 2, gk), y = lerp(b.y, PAPER.y + PAPER.h / 2, gk), s = p.s * (1 - 0.8 * gk), op = p.op * (1 - sstep(0.7, 1, gk));
+    if (op <= 0) return;
+    g.save(); g.translate(x, y + p.dy); g.rotate(b.r * (1 - gk)); g.scale(s, s); g.globalAlpha = op;
+    g.font = F.sans(700, 30); const w = Math.max(g.measureText(b.s).width, W_(b.who, F.sans(800, 20))) + 44, h = 98;
+    g.shadowColor = 'rgba(5,10,25,0.4)'; g.shadowBlur = 30 * DPR; g.shadowOffsetY = 10 * DPR;
+    rrect(-w / 2, -h / 2, w, h, 26); g.fillStyle = '#DCF5E7'; g.fill(); g.shadowColor = 'transparent';
+    txt(b.who, -w / 2 + 22, -h / 2 + 32, F.sans(800, 20), C.teal);
+    txt(b.s, -w / 2 + 22, h / 2 - 22, F.sans(700, 30), C.ink);
+    g.restore();
+  });
+  // unread badge
+  if (t > 0.5 && t < T.tapPaper + 0.4) {
+    const n = Math.min(99, Math.floor(3 + (t - 0.5) * 34)), p = OM.popIn(t, 0.5), out = 1 - sstep(T.tapPaper, T.tapPaper + 0.3, t);
+    chip(n >= 99 ? '99+' : String(n), PAPER.x + PAPER.w - 10, PAPER.y - 6, F.sans(800, 30), '#fff', C.pinkD, p.op * out, p.s, 18, 56);
+  }
+}
+
+function drawToken(t, tk) {
+  const op = tk.phase === 'row' ? 1 - sstep(T.inC + 0.25, T.inC + 0.4, t) : 1;
+  g.save(); g.globalAlpha = op;
+  const shrinkFill = tk.phase === 'shrink' ? (tk.k < 0.5 ? C.paper : C.amber) : C.amber;
+  g.shadowColor = 'rgba(5,10,25,0.4)'; g.shadowBlur = 24 * DPR; g.shadowOffsetY = 8 * DPR;
+  rrect(tk.x, tk.y, tk.w, tk.h, tk.r); g.fillStyle = shrinkFill; g.fill(); g.shadowColor = 'transparent';
+  const to = tk.phase === 'shrink' ? sstep(0.55, 0.9, tk.k) : 1;
+  txt('#0142 · RM 86.40', tk.x + tk.w / 2, tk.y + tk.h / 2 + 10, F.sans(800, 28), C.ink, { align: 'center', op: to * (tk.phase === 'row' ? 0 : 1) * sstep(250, 320, tk.w) });
+  txt('RM', tk.x + tk.w / 2, tk.y + tk.h / 2 + 9, F.sans(800, 24), C.ink, { align: 'center', op: 1 - sstep(80, 140, tk.w) });
+  g.restore();
+}
+
+function drawWorkflow(t) {
+  if (t < T.hop || t > T.push + 0.6) return;
+  const lk = ease.expoOut(seg(t, T.hop + 0.2, T.land + 0.1));
+  g.save(); g.strokeStyle = C.dot; g.lineWidth = 8; g.lineCap = 'round'; g.beginPath(); g.moveTo(BX, NODES[0].y); g.lineTo(BX, lerp(NODES[0].y, NODES[3].y, lk)); g.stroke();
+  // the travelled part lights amber behind the token
+  const tk = TRK.token; const ty = t >= T.toC ? NODES[3].y : tk && tk.phase === 'chain' ? tk.y + tk.h / 2 : NODES[0].y;
+  if (t >= T.land) { g.strokeStyle = C.amber; g.beginPath(); g.moveTo(BX, NODES[0].y); g.lineTo(BX, ty); g.stroke(); }
+  g.restore();
+  NODES.forEach((n, i) => {
+    const tn = NODE_T[i]; if (t < tn - 0.4) return;
+    const p = OM.popIn(t, tn - 0.25, { rise: 0, s0: 0.9, ds: 0.1 }), done = t >= tn, im = OM.impact(t, tn, { sqx: 0.06, sqy: 0.08 });
+    g.beginPath(); g.arc(BX, n.y, 26 * p.s, 0, 6.2832); g.fillStyle = done ? C.mint : C.ground2; g.fill(); g.lineWidth = 4; g.strokeStyle = done ? C.mint : C.dot; g.stroke();
+    if (done) check(BX, n.y, 1.1, C.ink, 5);
+    g.save(); g.translate(1340, n.y); g.scale(p.s * im.sx, p.s * im.sy);
+    card(0, -86, 690, 172, 26, p.op, C.card, true);
+    txt(n.who, 34, -26, F.sans(700, 26), C.mute, { op: p.op });
+    txt(n.tm, 656, -26, F.sans(700, 24), C.soft, { align: 'right', op: p.op });
+    const w = OM.wordRise(t, tn + 0.02, { dist: 20 });
+    txt(done ? n.st : 'Menunggu…', 34, 44, F.sans(800, 44), done ? (i === 3 ? C.teal : C.ink) : C.soft, { op: p.op * (done ? w.op : 1), dy: done ? w.y : 0 });
+    g.restore();
+  });
+}
+
+function drawSystem(t) {
+  if (t < T.toC - 0.3 || t > T.push + 0.7) return;
+  const p = OM.popIn(t, T.toC + 0.25, { rise: 0, s0: 0.96 });
+  card(PANEL.x, PANEL.y, PANEL.w, PANEL.h, 30, p.op, C.card, true);
+  g.save(); g.globalAlpha = p.op;
+  txt('Panel Admin', PANEL.x + 34, PANEL.y + 68, F.sans(800, 38), C.ink);
+  chip('Tuntutan', PANEL.x + PANEL.w - 110, PANEL.y + 56, F.sans(800, 24), C.teal, C.tealL, 1, 1, 18, 48);
+  ['ID', 'NAMA', 'RM', 'STATUS'].forEach((h, i) => txt(h, [PANEL.x + 34, PANEL.x + 180, PANEL.x + 560, PANEL.x + 720][i], PANEL.y + 128, F.sans(800, 18), C.mute, { align: i === 2 ? 'right' : i === 3 ? 'center' : 'left', track: 2 }));
+  ROWS.forEach((r, i) => {
+    const fresh = i === 0; if (fresh && t < T.inC + 0.2) return;
+    const shift = spring(t - T.inC, 0.6, 18), y = fresh ? ROW_Y(0) : lerp(ROW_Y(i - 1), ROW_Y(i), shift);
+    if (fresh) { const fl = 1 - sstep(T.inC + 1.2, T.inC + 2.2, t); g.globalAlpha = p.op; rrect(PANEL.x + 16, y - 52, PANEL.w - 32, 80, 18); g.fillStyle = `rgba(242,181,68,${0.25 + 0.35 * fl})`; g.fill(); }
+    const w = fresh ? OM.wordRise(t, T.inC + 0.2, { dist: 14 }) : { op: 1, y: 0 };
+    g.globalAlpha = p.op * w.op;
+    g.strokeStyle = C.line; g.lineWidth = 2; g.beginPath(); g.moveTo(PANEL.x + 30, y + 36); g.lineTo(PANEL.x + PANEL.w - 30, y + 36); g.stroke();
+    txt(r[0], PANEL.x + 34, y + w.y, F.sans(700, 28), C.mute);
+    txt(r[1], PANEL.x + 180, y + w.y, F.sans(800, 30), C.ink);
+    txt(r[2], PANEL.x + 560, y + w.y, F.sans(800, 30), C.ink, { align: 'right' });
+    const paid = r[3] === 'Dibayar';
+    chip(r[3], PANEL.x + 720, y - 10 + w.y, F.sans(800, 22), paid ? C.teal : C.amberD, paid ? C.tealL : '#FDF1D6', 1, 1, 16, 44);
+  });
+  g.restore();
+}
+
+function drawCalc(t) {
+  if (t < T.push) return;
+  const p = OM.popIn(t, T.push + 0.4, { rise: 0, s0: 0.95 }), out = 1 - sstep(T.irisEnd - 0.2, T.irisEnd, t);
+  if (out <= 0) return;
+  g.save(); g.globalAlpha = out;
+  card(CALC.x, CALC.y, CALC.w, CALC.h, 30, p.op, C.card, true);
+  g.globalAlpha = out * p.op;
+  txt('KALKULATOR KOS MANUAL', CALC.x + 40, CALC.y + 64, F.sans(800, 22), C.mute, { track: 3 });
+  const rows = [['Staf terlibat', '5'], ['Jam kerja manual / hari', '2'], ['Kos sejam', 'RM 25']];
+  rows.forEach((r, i) => {
+    const w = OM.wordRise(t, T.calc + i * 0.12, { dist: 18 }), y = CALC.y + 132 + i * 74;
+    txt(r[0], CALC.x + 40, y + w.y, F.sans(700, 30), C.ink, { op: w.op });
+    chip(r[1], CALC.x + CALC.w - 110, y - 10 + w.y, F.sans(800, 30), C.ink, C.cream, w.op, 1, 26, 56);
+  });
+  g.strokeStyle = C.line; g.lineWidth = 2; g.beginPath(); g.moveTo(CALC.x + 40, CALC.y + 330); g.lineTo(CALC.x + CALC.w - 40, CALC.y + 330); g.stroke();
+  const v = Math.round(65000 * ease.expoOut(seg(t, T.result, T.result + 0.75)) / 100) * 100, im = OM.impact(t, T.result + 0.75, { sqx: 0.06, sqy: 0.08 });
+  const r1 = OM.wordRise(t, T.result - 0.1);
+  txt('Anda hilang setahun:', CALC.x + 40, CALC.y + 384, F.sans(700, 28), C.mute, { op: r1.op });
+  txt('RM ' + v.toLocaleString('en-US'), CALC.x + 40, CALC.y + 490, F.sans(800, 104), C.pinkD, { op: r1.op, sx: im.sx, sy: im.sy });
+  const b = OM.popIn(t, T.result + 0.6), pr = OM.press(t, T.tapCalc, { depth: 0.08 });
+  g.save(); g.translate(CALC.x + CALC.w / 2, CALC.y + 572); g.scale(b.s * pr.s, b.s * pr.s);
+  rrect(-389, -44, 778, 88, 44); g.fillStyle = t >= T.tapCalc ? C.teal : C.ink; g.globalAlpha *= b.op; g.fill();
+  txt('Kira kos saya — PERCUMA →', 0, 12, F.sans(800, 32), '#fff', { align: 'center' }); g.restore();
+  g.restore();
+}
+
+function drawFinger(t) {
+  const f = finger(t); TRK.finger = f ? [f.x, f.y] : null; if (!f) return;
+  g.save(); g.globalAlpha = f.op;
+  const pr = t - f.tap; if (pr > 0 && pr < 0.6) { g.beginPath(); g.arc(f.x, f.y, 40 + pr * 150, 0, 6.2832); g.strokeStyle = C.cream; g.globalAlpha = f.op * 0.4 * (1 - pr / 0.6); g.lineWidth = 4; g.stroke(); g.globalAlpha = f.op; }
+  const r = 44 - 8 * f.down;
+  g.shadowColor = 'rgba(0,0,0,0.35)'; g.shadowBlur = 24 * DPR; g.shadowOffsetY = 8 * DPR;
+  g.beginPath(); g.arc(f.x, f.y, r, 0, 6.2832); g.fillStyle = 'rgba(255,255,255,0.8)'; g.fill(); g.shadowColor = 'transparent';
+  g.lineWidth = 5; g.strokeStyle = C.ink; g.stroke(); g.beginPath(); g.arc(f.x, f.y, 11 + 5 * f.down, 0, 6.2832); g.fillStyle = C.ink; g.fill();
+  g.restore();
+}
+
+function drawIrisAndEnd(t) {
+  if (t < T.iris) return;
+  // the stage opens from the pressed button
+  const bp = OM.project(VIEW, CALC.x + CALC.w / 2, CALC.y + 572);
+  const ir = OM.iris(t, T.iris, T.irisEnd, bp[0], bp[1], { W, H, curve: ease.expoInOut });
+  g.save(); g.beginPath(); g.arc(ir.cx, ir.cy, ir.r, 0, 6.2832); g.fillStyle = C.ground2; g.fill(); g.restore();
+  if (t < T.end) return;
+  const Y = 0;
+  const top = OM.popIn(t, T.end + 0.35);
+  chip('APPS · SISTEM · WORKFLOW · API', CX, 640 + top.dy, F.sans(800, 28), C.mint, '#24365C', top.op, top.s, 26, 62);
+  MARK.letters.forEach((L, i) => {
+    const d = OM.letterDrop(t, T.end + 0.1, i, { stagger: 0.045, dist: 60 });
+    txt(L.ch, L.x, 850, L.it ? F.ital(124) : F.serif(124), L.it ? C.amber : C.cream, { op: d.op, dy: d.y, sx: d.sx, sy: d.sy });
+  });
+  const lk = ease.expoOut(seg(t, T.end + 0.55, T.end + 1.1));
+  g.strokeStyle = C.link; g.lineWidth = 7; g.lineCap = 'round'; g.beginPath(); g.moveTo(CX - (MARK.w / 2 - 10) * lk, 880); g.lineTo(CX + (MARK.w / 2 - 10) * lk, 880); g.stroke();
+  const tg = OM.wordRise(t, T.end + 0.75);
+  txt('Proses kusut? Kami digitalkan.', CX, 970, F.ital(54), C.cream, { align: 'center', op: tg.op, dy: tg.y });
+  const u = OM.popIn(t, T.end + 0.95), im = OM.impact(t, T.end + 1.1, { sqx: 0.05, sqy: 0.08 });
+  g.save(); g.translate(CX, 1120); g.scale(u.s * im.sx, u.s * im.sy); g.globalAlpha = u.op;
+  rrect(-330, -58, 660, 116, 58); g.fillStyle = C.amber; g.fill();
+  txt('rungkaikusut.com', 0, 17, F.sans(800, 50), C.ink, { align: 'center' }); g.restore();
+  const l1 = OM.wordRise(t, T.end + 1.15), l2 = OM.wordRise(t, T.end + 1.25);
+  txt('Apps iOS & Android · Portal · Panel admin', CX, 1262, F.sans(800, 32), C.cream, { align: 'center', op: l1.op, dy: l1.y });
+  txt('untuk PKS Malaysia', CX, 1318, F.sans(700, 32), C.soft, { align: 'center', op: l2.op, dy: l2.y });
+}
+
+function drawHeadlines(t) {
+  const L = SAFE.x0 + 8;
+  head('Masih approve guna', L, 360, F.sans(800, 56), C.cream, T.q1, T.fold - 0.05, t);
+  head('kertas & WhatsApp?', L, 470, F.ital(100), C.amber, T.q2, T.fold, t);
+  head('Kami jadikan', L, 390, F.serif(104), C.cream, T.head2, T.hop - 0.05, t);
+  head('apps.', L + W_('Kami jadikan ', F.serif(104)), 390, F.ital(104), C.amber, T.head2 + 0.1, T.hop - 0.02, t);
+  head('Kelulusan', L, 380, F.serif(110), C.cream, T.wfHead, T.toC - 0.05, t);
+  head('automatik.', L, 484, F.ital(110), C.amber, T.wfHead + 0.12, T.toC - 0.02, t);
+  if (t >= T.stat && t < T.toC + 0.3) {   // the proof, then the one held breath
+    const p = OM.popIn(t, T.stat, { s0: 0.8, ds: 0.2 }), o = OM.liftOut(t, T.toC, { dur: 0.24, dist: 50 });
+    const w = W_('3 hari → 3 minit', F.sans(800, 44)) + 56;
+    chip('3 hari → 3 minit', L + w / 2, 566 + p.dy + o.dy, F.sans(800, 44), C.ink, C.mint, p.op * o.op, p.s, 28, 76);
+  }
+  head('Masuk terus', L, 380, F.serif(110), C.cream, T.cHead, T.pull - 0.05, t);
+  head('ke sistem anda.', L, 484, F.ital(110), C.amber, T.cHead + 0.12, T.pull - 0.02, t);
+  head('Panel admin · laporan · audit.', L, 562, F.sans(700, 36), C.mint, T.cSub, T.pull, t);
+  head('Semua sistem', L, 380, F.serif(110), C.cream, T.pull + 0.25, T.push - 0.05, t);
+  head('bersambung.', L, 484, F.ital(110), C.amber, T.pull + 0.37, T.push - 0.02, t);
+  head('Berapa kos', L, 380, F.serif(110), C.cream, T.calcHead, T.iris + 0.25, t);
+  head('kerja manual?', L, 484, F.ital(110), C.pink, T.calcHead + 0.12, T.iris + 0.28, t);
+}
+
+function drawSafe() {
+  g.save(); g.fillStyle = 'rgba(228,111,146,0.2)';
+  g.fillRect(0, 0, W, SAFE.y0); g.fillRect(0, SAFE.y1, W, H - SAFE.y1); g.fillRect(0, SAFE.y0, SAFE.x0, SAFE.y1 - SAFE.y0); g.fillRect(SAFE.x1, SAFE.y0, W - SAFE.x1, SAFE.y1 - SAFE.y0);
+  g.strokeStyle = C.pink; g.lineWidth = 3; g.setLineDash([12, 10]); g.strokeRect(SAFE.x0, SAFE.y0, SAFE.x1 - SAFE.x0, SAFE.y1 - SAFE.y0); g.restore();
+}
+
+let MARK = { letters: [] };
+function measure() {
+  let tot = 0; const ws = [];
+  for (const [s, it] of [['Rungkai ', false], ['Kusut', true]]) for (const ch of s) { const w = W_(ch, it ? F.ital(124) : F.serif(124)); ws.push({ ch, it, w }); tot += w; }
+  let x = CX - tot / 2; MARK.letters = ws.map(l => { const o = { ch: l.ch, it: l.it, x }; x += l.w; return o; }).filter(l => l.ch !== ' ');
+  MARK.w = tot;
+}
+function events() {
+  const E = [], pan = x => clamp((x - W / 2) / (W / 2), -1, 1);
+  E.push({ t: T.q1, kind: 'word', pan: -0.4, v: 0.6 }, { t: T.q2, kind: 'hit', pan: -0.2, v: 0.7 });
+  BUBBLES.forEach((b, i) => E.push({ t: b.t, kind: 'ping', pan: pan(b.x), v: 0.5 + 0.06 * i, i }));
+  E.push({ t: T.tapPaper, kind: 'tap', pan: 0, v: 0.8 }, { t: T.tapPaper + 0.05, kind: 'suck', pan: 0, v: 0.8 }, { t: T.fold, kind: 'fold', pan: 0, v: 0.8 }, { t: T.folded, kind: 'land', pan: 0, v: 0.6 });
+  [T.tapChip, T.tapAmt, T.tapUp].forEach(tt => E.push({ t: tt, kind: 'tap', pan: 0, v: 0.6 }));
+  for (let i = 0; i < 5; i++) E.push({ t: T.type + i / 11, kind: 'key', pan: 0, v: 0.4 });
+  E.push({ t: T.tapUp + 0.05, kind: 'pop', pan: 0, v: 0.6 }, { t: T.tapUp + 0.2, kind: 'scan', pan: 0, v: 0.5, dur: T.aiRead - T.tapUp - 0.2 }, { t: T.aiRead, kind: 'ok', pan: 0, v: 0.6, i: 0 });
+  E.push({ t: T.tapSend, kind: 'tap', pan: 0, v: 0.9 }, { t: T.shrink, kind: 'shrink', pan: 0, v: 0.7 }, { t: T.hop, kind: 'whoosh', pan: 0.3, v: 0.9, dur: 0.6 });
+  NODE_T.forEach((tn, i) => E.push({ t: tn, kind: 'node', pan: -0.3, v: 0.7, i }));
+  E.push({ t: T.stat, kind: 'win', pan: 0, v: 0.8 });
+  E.push({ t: T.toC, kind: 'whoosh', pan: 0.3, v: 0.9, dur: 0.6 }, { t: T.inC, kind: 'land', pan: 0, v: 0.8 }, { t: T.inC + 0.2, kind: 'ok', pan: 0, v: 0.6, i: 2 });
+  E.push({ t: T.pull, kind: 'rise', pan: 0, v: 0.7, dur: T.pulled - T.pull });
+  CHIPS.forEach((c, i) => E.push({ t: T.chips + i * 0.14, kind: 'chip', pan: pan(540 + (c.x - 1640) * 0.34), v: 0.6 + 0.05 * i, i }));
+  E.push({ t: T.push, kind: 'whoosh', pan: 0.2, v: 0.8, dur: 0.7 });
+  [0, 1, 2].forEach(i => E.push({ t: T.calc + i * 0.12, kind: 'key', pan: 0, v: 0.4 }));
+  E.push({ t: T.result, kind: 'count', pan: 0, v: 0.7, dur: 0.75 }, { t: T.result + 0.75, kind: 'hit', pan: 0, v: 0.9 });
+  E.push({ t: T.tapCalc, kind: 'tap', pan: 0, v: 0.9 }, { t: T.iris, kind: 'iris', pan: 0, v: 0.8, dur: T.irisEnd - T.iris });
+  MARK.letters.forEach((l, i) => { if (i % 3 === 0) E.push({ t: T.end + 0.1 + i * 0.045 + 0.06, kind: 'letter', pan: pan(l.x), v: 0.35 }); });
+  E.push({ t: T.end + 1.1, kind: 'final', pan: 0, v: 1 });
+  return { T, dur: DUR, rest: [T.rest, T.toC - 0.05], events: E.sort((a, b) => a.t - b.t) };
+}
+function trackPts(t) {
+  seek(t); const pts = [];
+  const tk = TRK.token; if (tk) pts.push(OM.project(VIEW, tk.x, tk.y), OM.project(VIEW, tk.x + tk.w, tk.y + tk.h));
+  if (TRK.finger) pts.push(OM.project(VIEW, ...TRK.finger));
+  return pts;
+}
+window.__meta = { dur: DUR, fps: 30, size: [W, H], safe: SAFE };
+window.__seek = async t => seek(t);
+window.__events = events;
+window.__motion = (t0, t1) => {
+  const a = trackPts(t0), c0 = CAM, b = trackPts(t1), c1 = CAM; trackPts((t0 + t1) / 2); const cm = CAM;
+  let d = OM.screenTravel(c0, c1, cm, { W, H });
+  for (let i = 0; i < Math.min(a.length, b.length); i++) d = Math.max(d, Math.hypot(a[i][0] - b[i][0], a[i][1] - b[i][1]));
+  return d;
+};
+window.__ready = Promise.all([F.sans(700, 40), F.sans(800, 40), F.serif(100), F.ital(100)].map(f => document.fonts.load(f)))
+  .then(() => { measure(); seek(+Q.get('t') || 0); return true; });
+if (Q.has('play')) window.__ready.then(() => { const t0 = performance.now(); const loop = () => { seek(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop); }; loop(); });
+</script>
+</body>
+</html>
