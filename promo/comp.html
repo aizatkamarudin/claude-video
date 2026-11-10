@@ -48,6 +48,8 @@ const T = {
   burst: 12.55, cta: 14.0, tap: 16.0, end: 17.0,
 };
 const BURST = [[12.55, 'Data.'], [12.85, 'Dashboard.'], [13.15, 'Automasi.'], [13.45, 'Apps.'], [13.75, 'AI.']];
+const BURST_BG = ['#F4EFE5', '#1B2A4A', '#E46F92', '#1E7A6C', '#1B2A4A'];   // a real cut: the whole ground flips on every word
+const burstI = t => (t >= BURST[0][0] && t < 14.0) ? OM.staccato(t, BURST).i : -1;
 const FLOW_Y = 1340;    // the flow section sits this far below the dashboard in the world
 const END_Y = 4000;     // the burst, the checker and the lockup sit here
 
@@ -234,7 +236,8 @@ let CAM, VIEW, TRK = {};
 function seek(t) {
   t = clamp(t, 0, DUR);
   g.setTransform(DPR, 0, 0, DPR, 0, 0);
-  g.globalAlpha = 1; g.fillStyle = C.ground; g.fillRect(0, 0, W, H);
+  const bi = burstI(t);
+  g.globalAlpha = 1; g.fillStyle = bi > 0 ? BURST_BG[bi] : C.ground; g.fillRect(0, 0, W, H);
   CAM = camAt(t); VIEW = OM.view(CAM, { W, H });
   const setM = M => g.setTransform(M[0] * DPR, M[1] * DPR, M[2] * DPR, M[3] * DPR, M[4] * DPR, M[5] * DPR);
 
@@ -247,7 +250,7 @@ function seek(t) {
   setM(VIEW);
   const P = threadAt(t);
   // the thread first, always the same stroke style — it is the one thing that survives every boundary
-  g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = C.thread;
+  g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = bi > 0 ? '#FFFFFF' : C.thread;
   g.lineWidth = t < T.pull ? 6 : t < T.flow ? lerp(6, 7, sstep(T.dash, T.dash + 0.5, t)) : 7;
   g.beginPath(); g.moveTo(P[0][0], P[0][1]); for (let i = 1; i < N; i++) g.lineTo(P[i][0], P[i][1]); g.stroke();
   TRK.thread = P;
@@ -428,7 +431,7 @@ function drawEnd(t, P) {
   // burst: hard-cut words over the thread underline
   if (t < T.cta) {
     const { word, i } = OM.staccato(t, BURST), tc = BURST[i][0], im = OM.impact(t, tc, { sqx: 0.06, sqy: 0.09 });
-    txt(word, CX, Y + 960, F.sans(800, i === 4 ? 190 : 132), i === 4 ? C.pinkD : C.ink, { align: 'center', sx: im.sx, sy: im.sy, track: -2 });
+    txt(word, CX, Y + 960, F.sans(800, i === 4 ? 190 : 132), i === 0 ? C.ink : i === 4 ? C.pink : '#FFFFFF', { align: 'center', sx: im.sx, sy: im.sy, track: -2 });
   }
   // the checker
   if (t >= T.cta && t < T.end + 0.4) {

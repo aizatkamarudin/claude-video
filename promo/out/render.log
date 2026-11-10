@@ -1,9 +1,10 @@
-630 frames on 3 workers · shutter 180°, captures per frame sized by __motion (gap 6 px, 4–48)
-  66/630  15s
-  125/630  30s
-  191/630  45s
-  254/630  60s
-  325/630  75s
-  341/630  90s
-  380/630  105s
-  459/630  120s
+630 frames on 4 workers · shutter 180°, captures per frame sized by __motion (gap 6 px, 4–48)
+  84/630  15s
+  166/630  30s
+  241/630  45s
+  326/630  60s
+  347/630  75s
+  433/630  90s
+  534/630  105s
+630 frames, 3064 captures (64 still frames skipped the shutter, 65 kept a cut hard) in 118s on 4 workers; page errors: none
+wrote /home/user/claude-video/promo/out/draft.mp4

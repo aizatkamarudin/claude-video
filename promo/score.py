@@ -84,6 +84,11 @@ envfx = np.abs(fx).max(1); k = int(SR * 0.08); envfx = np.convolve(envfx, np.one
 duck = 1 / (1 + 6 * envfx / (envfx.max() + 1e-9)); bed *= duck[:, None]
 bed *= np.minimum(1, _t(n) / 0.05)[:, None] * np.minimum(1, (DUR - _t(n)) / 0.6)[:, None]
 mix = fx * 0.85 + bed / (np.abs(bed).max() + 1e-9) * 0.42
+# breaths: the hold, a gasp before the burst, the end card ringing out
+gate = np.ones(n); tt = _t(n)
+for a, b in [(8.7, 9.92), (12.05, 12.52), (19.4, DUR + 1)]:
+    gate *= 1 - np.clip(np.minimum((tt - a) / 0.08, (b - tt) / 0.04), 0, 1)
+mix *= gate[:, None]
 meter = pyln.Meter(SR); L = meter.integrated_loudness(mix); mix = pyln.normalize.loudness(mix, L, -16.0)
 pk = np.abs(mix).max(); ceil = 10 ** (-4 / 20)
 if pk > ceil: mix = np.tanh(mix / ceil * 0.95) * ceil   # soft ceiling

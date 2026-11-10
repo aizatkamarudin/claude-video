@@ -6,8 +6,8 @@
 | file | what |
 |---|---|
 | `out/rungkaikusut-tiktok.mp4` | the film with sound, 1080×1920 30 fps (upload this) |
-| `out/rungkaikusut-tiktok-60fps.mp4` | the same at 60 fps, if made |
 | `out/mix.wav` | the sound mix alone (−17 LUFS) |
+| `review/` | stills used while making it; `verify_promo.py` PASS on every leg vs the reference |
 | `review/safe-zone.png` | key frames with the TikTok + Reels safe zone drawn on |
 | `caption.txt` | post caption and hashtags (BM) |
 | `comp.html` | the composition: `?play` plays it, `?t=6.4` pins a frame, `?safe` shows the safe zone |
