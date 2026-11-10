@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<!-- Rungkai Kusut · "Cahaya imbasan" — practical AI promo, 1080×1920 TikTok / Reels. onetake method (motion.js, PolyForm NC). -->
+<html lang="ms">
+<head>
+<meta charset="utf-8">
+<title>Rungkai Kusut · Cahaya imbasan</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+html,body{margin:0;width:1080px;height:1920px;overflow:hidden;background:#0E2A27}
+canvas{position:absolute;left:0;top:0;width:1080px;height:1920px}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script src="motion.js"></script>
+<script>
+'use strict';
+const { clamp, lerp, seg, sstep, ssstep, ease, spring, spline } = OM;
+const W = 1080, H = 1920, DUR = 21.5;
+const SAFE = { x0: 72, x1: 930, y0: 250, y1: 1440 };   // TikTok + Reels shared safe zone
+const CX = (SAFE.x0 + SAFE.x1) / 2;
+const C = {
+  ground: '#0E2A27', ground2: '#133A35', dot: '#21504A', cream: '#F4EFE5', paper: '#FBF8F2', card: '#FFFFFF',
+  ink: '#1B2A4A', deep: '#0E2A27', mute: '#5D6782', soft: '#9FC7BE', line: '#E6E0D3', grey: '#D9D3C7',
+  mint: '#7FD8B0', teal: '#1E7A6C', tealL: '#E1F1EE', amber: '#F2B544', amberL: '#FDF1D6', pink: '#E46F92', pinkD: '#C2456B',
+  beam: '#7fd8b1',   // the scan light: the one thing that survives every boundary
+};
+const F = { sans: (w, px) => `${w} ${px}px Jakarta`, serif: px => `400 ${px}px Serif`, ital: px => `italic 400 ${px}px Serif` };
+const Q = new URLSearchParams(location.search);
+const cv = document.getElementById('cv'), g = cv.getContext('2d');
+const DPR = window.devicePixelRatio || 1; cv.width = W * DPR; cv.height = H * DPR;
+
+// ───────────────────────── timeline ─────────────────────────
+const T = {
+  h1: 0.1, h2: 0.4, cnt: 0.7, beamIn: 2.15, scan: 2.6, scanned: 3.55, head2: 2.7,
+  rapid: 3.7, rapidEnd: 5.15, toChat: 5.3, inChat: 6.05, chatHead: 5.9,
+  type1: 6.2, send1: 6.95, dots1: 7.05, ans1: 7.5, type2: 8.0, send2: 8.4, dots2: 8.45, ans2: 8.85, restA: 9.15,
+  dive: 9.9, dived: 10.7, fcHead: 10.25, sweep: 10.8, swept: 12.4, warn: 12.0,
+  toD: 12.85, inD: 13.45, cards: [13.45, 13.75, 14.05, 14.35], dHead: 13.0,
+  cta: 14.75, ctaHead: 14.85, tap: 16.55, zoom: 16.75, filled: 17.45, end: 17.5,
+};
+const B = 2000, D = 4000;   // world offsets of the chat and the AI-cards sections
+// section A: the pile of invoices
+const INV = { x: 181, y: 600, w: 640, h: 800 };
+const PILE = Array.from({ length: 7 }, (_, i) => { const r = OM.rng(11 + i * 7); return { dx: (r() - 0.5) * 70, dy: -i * 9 + (r() - 0.5) * 20, rot: (r() - 0.5) * 0.16, t: 0.08 + (6 - i) * 0.17 }; });
+const FIELDS = [   // where the beam reads (local y in the invoice)
+  { y: 170, h: 46, x: 40, w: 470, label: 'Pembekal' }, { y: 236, h: 40, x: 40, w: 300, label: 'No. invois' },
+  { y: 236, h: 40, x: 380, w: 220, label: 'Tarikh' }, { y: 640, h: 60, x: 300, w: 300, label: 'Jumlah' },
+];
+// section B: chat card + the mini chart that the camera dives into
+const CHAT = { x: 90, y: B + 560, w: 822, h: 880 };
+const INPUT = { x: 120, y: B + 1340, w: 762, h: 76 };
+const CR = { x: 150, y: B + 935, w: 330, h: 190 }, CL = { w: 858, h: 494 }, CS = CR.w / CL.w;   // chart: local units 858×494
+const ZOOM_C = 1 / CS, CAM_C = { x: CR.x + CR.w / 2 + (540 - CX) / ZOOM_C, y: CR.y + CR.h / 2 };
+const MONTHS = ['Jan', 'Feb', 'Mac', 'Apr', 'Mei', 'Jun', 'Jul', 'Ogo', 'Sep', 'Okt', 'Nov', 'Dis'];
+const SALES = [42, 48, 45, 55, 60, 57, 66, 72], FCAST = [72, 78, 83, 90, 97];   // FCAST[0] = today
+const mx = i => 60 + i * (CL.w - 100) / 11, my = v => CL.h - 70 - v / 110 * (CL.h - 130);
+// section D: four capability cards slam onto the beam, then the top one becomes the CTA
+const SHELF_Y = D + 1180;
+const AICARDS = ['Baca invois & borang', 'Chatbot data syarikat', 'Ramalan jualan & stok', 'Laporan automatik'];
+const CTA = { x: 90, y: D + 600, w: 822, h: 760 };
+const BTN = { x: 130, y: D + 1220, w: 742, h: 100 };
+
+// ───────────────────────── the beam (a polyline, so it can be a line, a caret, a frame) ─────────────────────────
+const N = 120;
+const lineP = (x0, y0, x1, y1) => Array.from({ length: N }, (_, i) => [lerp(x0, x1, i / (N - 1)), lerp(y0, y1, i / (N - 1))]);
+function rectP(r) {   // perimeter of a rounded-ish rect, evenly in N points
+  const per = 2 * (r.w + r.h), out = [];
+  for (let i = 0; i < N; i++) {
+    let d = per * i / (N - 1);
+    if (d < r.w) out.push([r.x + d, r.y]); else if ((d -= r.w) < r.h) out.push([r.x + r.w, r.y + d]);
+    else if ((d -= r.h) < r.w) out.push([r.x + r.w - d, r.y + r.h]); else { d -= r.w; out.push([r.x, r.y + r.h - Math.min(d, r.h)]); }
+  }
+  return out;
+}
+const mixP = (A, Bp, k) => A.map((p, i) => [lerp(p[0], Bp[i][0], k), lerp(p[1], Bp[i][1], k)]);
+const chartToWorld = (lx, ly) => [CR.x + lx * CS, CR.y + ly * CS];
+function scanY(t) {   // where the beam sits on the invoice pile
+  if (t < T.scan) return INV.y + 40;
+  if (t < T.scanned) return lerp(INV.y + 40, INV.y + INV.h - 40, ease.sineInOut(seg(t, T.scan, T.scanned)));
+  if (t < T.rapid) return lerp(INV.y + INV.h - 40, INV.y + 40, ease.expoInOut(seg(t, T.scanned, T.rapid)));
+  if (t < T.rapidEnd) { const per = (T.rapidEnd - T.rapid) / 5, u = ((t - T.rapid) % per) / per; return lerp(INV.y + 40, INV.y + INV.h - 40, ease.cubicInOut(u)); }
+  return INV.y + INV.h / 2;
+}
+function beamAt(t) {
+  const inv = () => lineP(INV.x - 30, scanY(t), INV.x + INV.w + 30, scanY(t));
+  if (t < T.toChat) {
+    const w = ease.expoOut(seg(t, T.beamIn, T.beamIn + 0.4)), P = inv(), c = INV.x + INV.w / 2;
+    return { P: P.map(p => [lerp(c, p[0], w), p[1]]), op: sstep(T.beamIn, T.beamIn + 0.1, t) };
+  }
+  const inLine = lineP(INPUT.x + 10, INPUT.y + INPUT.h + 4, INPUT.x + INPUT.w - 10, INPUT.y + INPUT.h + 4);
+  if (t < T.dive) {
+    const k = ease.expoInOut(seg(t, T.toChat, T.inChat));
+    return { P: mixP(lineP(INV.x - 30, INV.y + INV.h / 2, INV.x + INV.w + 30, INV.y + INV.h / 2), inLine, k), op: 1 };
+  }
+  // the beam stands up as the chart's "hari ini" line, then sweeps into the future
+  const bx = lerp(mx(7), mx(11) + 20, ease.cubicInOut(seg(t, T.sweep, T.swept)));
+  const [ax, ay] = chartToWorld(bx, 30), [bx2, by2] = chartToWorld(bx, CL.h - 60), vline = lineP(ax, ay, bx2, by2);
+  if (t < T.toD) return { P: mixP(inLine, vline, ease.expoInOut(seg(t, T.dive, T.dived))), op: 1, chartX: bx };
+  const shelf = lineP(110, SHELF_Y, 890, SHELF_Y);
+  if (t < T.cta) return { P: mixP(vline, shelf, ease.expoInOut(seg(t, T.toD, T.inD))), op: 1 };
+  // the shelf becomes the glowing outline of the button
+  const frame = rectP({ x: BTN.x - 8, y: BTN.y - 8, w: BTN.w + 16, h: BTN.h + 16 });
+  if (t < T.end) return { P: mixP(shelf, frame, ease.expoInOut(seg(t, T.cta + 0.4, T.cta + 1.2))), op: 1 - sstep(T.zoom + 0.3, T.filled, t) };
+  return null;
+}
+
+// ───────────────────────── camera ─────────────────────────
+const KEYS = [
+  { t: 0, x: 540, y: 990, zoom: 1.04 },
+  { t: 2.3, x: 540, y: 975, zoom: 1.0, curve: ease.sineInOut },
+  { t: 3.6, x: 540, y: 975, zoom: 1.0 },
+  { t: 3.75, x: 540, y: 990, zoom: 1.05, curve: ease.expoOut },          // leans in for the rapid scans
+  { t: 5.2, x: 540, y: 990, zoom: 1.05 },
+  { t: T.inChat, x: 540, y: B + 960, zoom: 1.0, curve: ease.expoInOut }, // dives with the beam
+  { t: T.dive, x: 540, y: B + 960, zoom: 1.0 },
+  { t: T.dived, x: CAM_C.x, y: CAM_C.y, zoom: ZOOM_C, curve: ease.expoInOut },   // into the chart in the bubble
+  { t: T.toD, x: CAM_C.x, y: CAM_C.y, zoom: ZOOM_C },
+  { t: T.inD, x: 540, y: D + 960, zoom: 1.0, curve: ease.expoInOut },
+  { t: T.zoom, x: 540, y: D + 960, zoom: 1.0 },
+  { t: T.filled, x: BTN.x + BTN.w / 2 + (540 - CX) / 9, y: BTN.y + BTN.h / 2, zoom: 9, curve: ease.expoIn },   // through the button
+];
+const HITS = [[0.25, 5, 10], [0.6, 5, 10], [0.95, 6, 9], [3.55, 4, 10], [5.15, 6, 9], [7.5, 4, 10], [12.0, 5, 10], ...[13.45, 13.75, 14.05, 14.35].map((t, i) => [t, 8 + i * 2, 9]), [16.55, 4, 10]];
+const handEnv = t => sstep(1.4, 1.8, t) * (1 - sstep(2.4, 2.7, t)) + sstep(6.2, 6.5, t) * (1 - sstep(8.9, 9.15, t));
+function camAt(t) {
+  const c = OM.camera(t, KEYS, { W, H }), e = handEnv(t) * 4;
+  let x = c.x + e * (Math.sin(1.7 * t) + 0.6 * Math.sin(2.9 * t + 1)) / c.zoom, y = c.y + e * (Math.sin(1.3 * t + 2) + 0.5 * Math.sin(3.3 * t)) / c.zoom, rot = c.rot;
+  for (const [th, amp, decay] of HITS) { const s = OM.shake(t, th, { amp, decay, seed: Math.round(th * 100) }); x += s.x / c.zoom; y += s.y / c.zoom; rot += s.rot; }
+  return { x, y, zoom: c.zoom, rot };
+}
+
+// ───────────────────────── finger ─────────────────────────
+const FING = [{ t: 15.9, x: 1000, y: D + 1560 }, { t: T.tap, x: CX + 140, y: BTN.y + 52 }, { t: 17.0, x: CX + 140, y: BTN.y + 52 }];
+function finger(t) {
+  if (t < 15.9 || t > 17.0) return null;
+  const p = spline(FING, t);
+  return { x: p[0], y: p[1], op: sstep(15.9, 16.1, t) * (1 - sstep(16.7, 16.95, t)), down: sstep(T.tap - 0.07, T.tap, t) * (1 - sstep(T.tap + 0.08, T.tap + 0.2, t)), tap: T.tap };
+}
+
+// ───────────────────────── helpers ─────────────────────────
+function txt(s, x, y, font, color, { align = 'left', op = 1, sx = 1, sy = 1, dy = 0, base = 'alphabetic', track = 0 } = {}) {
+  if (op <= 0.003) return;
+  g.save(); g.globalAlpha *= clamp(op); g.font = font; g.fillStyle = color; g.textAlign = align; g.textBaseline = base;
+  if (track) g.letterSpacing = track + 'px';
+  g.translate(x, y + dy); g.scale(sx, sy); g.fillText(s, 0, 0); g.restore();
+}
+function rrect(x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
+function card(x, y, w, h, r, op, fill = C.card, shadow = true) {
+  if (op <= 0.003) return;
+  g.save(); g.globalAlpha *= op;
+  if (shadow) { g.shadowColor = 'rgba(0,12,10,0.45)'; g.shadowBlur = 50 * DPR * CAM.zoom; g.shadowOffsetY = 20 * DPR * CAM.zoom; }
+  rrect(x, y, w, h, r); g.fillStyle = fill; g.fill(); g.restore();
+}
+function chip(s, x, y, font, fg, bg, op = 1, sc = 1, padX = 18, h = 52) {
+  if (op <= 0.003) return 0;
+  g.save(); g.font = font; const w = g.measureText(s).width + padX * 2; g.globalAlpha *= op;
+  g.translate(x, y); g.scale(sc, sc); rrect(-w / 2, -h / 2, w, h, h / 2); g.fillStyle = bg; g.fill();
+  g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(s, 0, 2); g.restore(); return w;
+}
+function head(s, x, y, font, color, tIn, tOut, t, opts = {}) {
+  if (t < tIn || t > tOut + 0.3) return;
+  const r = OM.wordRise(t, tIn, { dist: 34, omega: 20 }), o = OM.liftOut(t, tOut, { dur: 0.24, dist: 60 });
+  txt(s, x, y, font, color, { ...opts, op: r.op * o.op, dy: r.y + o.dy, sx: r.s * o.s, sy: r.s * o.s });
+}
+const W_ = (s, font) => { g.save(); g.font = font; const w = g.measureText(s).width; g.restore(); return w; };
+const check = (x, y, s, col, lw = 4) => { g.save(); g.strokeStyle = col; g.lineWidth = lw; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath(); g.moveTo(x - 9 * s, y); g.lineTo(x - 2 * s, y + 7 * s); g.lineTo(x + 10 * s, y - 7 * s); g.stroke(); g.restore(); };
+const mul = (A, Bm) => [A[0] * Bm[0] + A[2] * Bm[1], A[1] * Bm[0] + A[3] * Bm[1], A[0] * Bm[2] + A[2] * Bm[3], A[1] * Bm[2] + A[3] * Bm[3], A[0] * Bm[4] + A[2] * Bm[5] + A[4], A[1] * Bm[4] + A[3] * Bm[5] + A[5]];
+
+// ───────────────────────── seek ─────────────────────────
+let CAM, VIEW, TRK = {};
+const setM = M => g.setTransform(M[0] * DPR, M[1] * DPR, M[2] * DPR, M[3] * DPR, M[4] * DPR, M[5] * DPR);
+function seek(t) {
+  t = clamp(t, 0, DUR);
+  g.setTransform(DPR, 0, 0, DPR, 0, 0); g.globalAlpha = 1; g.fillStyle = C.ground; g.fillRect(0, 0, W, H);
+  CAM = camAt(t); VIEW = OM.view(CAM, { W, H });
+  const G = OM.lattice(CAM, { depth: 1.2, spacing: 54, px: 2.2, W, H }); setM(G.matrix);
+  g.fillStyle = C.dot; g.globalAlpha = 0.9; g.beginPath();
+  for (let x = G.x0; x <= G.x1; x += G.spacing) for (let y = G.y0; y <= G.y1; y += G.spacing) { g.moveTo(x + G.r, y); g.arc(x, y, G.r, 0, 6.2832); }
+  g.fill(); g.globalAlpha = 1;
+  setM(VIEW);
+  drawPile(t);
+  drawChat(t);
+  drawChart(t);
+  setM(VIEW);
+  drawCards(t);
+  drawBeam(t);
+  drawFinger(t);
+  g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  drawEnd(t);
+  drawHeadlines(t);
+  if (Q.has('safe')) drawSafe();
+  return true;
+}
+
+function drawBeam(t) {
+  const b = beamAt(t); TRK.beam = b; if (!b || b.op <= 0) return;
+  const P = b.P, path = () => { g.beginPath(); g.moveTo(P[0][0], P[0][1]); for (let i = 1; i < N; i++) g.lineTo(P[i][0], P[i][1]); };
+  g.save(); g.globalAlpha = b.op; g.lineCap = 'round'; g.lineJoin = 'round';
+  g.strokeStyle = C.beam; g.lineWidth = 6; path(); g.stroke();   // the identity stroke first
+  g.globalAlpha = b.op * 0.22; g.lineWidth = 26; path(); g.stroke();
+  g.globalAlpha = b.op * 0.10; g.lineWidth = 60; path(); g.stroke();
+  g.globalAlpha = b.op; g.strokeStyle = '#EFFFF7'; g.lineWidth = 2.5; path(); g.stroke();
+  g.restore();
+}
+
+function drawInvoice(x, y, w, h, full, t, scanned) {
+  rrect(x, y, w, h, 14); g.fillStyle = C.paper; g.fill();
+  if (!full) {   // the pile: generic invoices
+    txt('INVOIS', x + 40, y + 80, F.sans(800, 38), '#C9C2B4');
+    for (let i = 0; i < 9; i++) { g.fillStyle = '#E6E0D3'; g.fillRect(x + 40, y + 140 + i * 58, w * (0.35 + 0.4 * Math.abs(Math.sin(i * 1.7 + x))), 14); g.fillRect(x + w - 150, y + 140 + i * 58, 110, 14); }
+    return;
+  }
+  txt('INVOIS', x + 40, y + 90, F.sans(800, 46), C.ink);
+  txt('Syarikat Maju Jaya Sdn Bhd', x + 40, y + 205, F.sans(800, 30), C.ink);
+  txt('No. INV-20931', x + 40, y + 266, F.sans(700, 26), C.mute);
+  txt('03/11/2026', x + 380, y + 266, F.sans(700, 26), C.mute);
+  g.fillStyle = C.line; g.fillRect(x + 40, y + 310, w - 80, 3);
+  [['Kertas A4 (50 rim)', '1,250.00'], ['Toner pencetak', '2,180.00'], ['Penghantaran', '1,100.80']].forEach((r, i) => {
+    txt(r[0], x + 40, y + 380 + i * 66, F.sans(700, 26), C.ink); txt(r[1], x + w - 40, y + 380 + i * 66, F.sans(700, 26), C.ink, { align: 'right' });
+  });
+  g.fillStyle = C.line; g.fillRect(x + 40, y + 600, w - 80, 3);
+  txt('JUMLAH', x + 40, y + 682, F.sans(800, 26), C.mute, { track: 2 });
+  txt('RM 4,820.80', x + w - 40, y + 684, F.sans(800, 44), C.ink, { align: 'right' });
+  // fields light up as the beam passes them
+  FIELDS.forEach(f => {
+    const passed = scanned(y + f.y + f.h / 2); if (passed <= 0) return;
+    g.save(); g.globalAlpha = passed; g.strokeStyle = C.teal; g.lineWidth = 4; rrect(x + f.x - 10, y + f.y - 8, f.w + 20, f.h + 16, 10); g.stroke();
+    g.fillStyle = 'rgba(127,216,176,0.16)'; g.fill(); g.restore();
+  });
+}
+
+function drawPile(t) {
+  if (t > T.inChat + 0.3) return;
+  const rapidI = t < T.rapid ? -1 : Math.min(5, Math.floor((t - T.rapid) / ((T.rapidEnd - T.rapid) / 5)));
+  for (let i = PILE.length - 1; i >= 0; i--) { const p = PILE[i];   // i = 0 is the top invoice; draw bottom first
+    const k = spring(t - p.t, 0.55, 16), land = OM.impact(t, p.t + 0.12, { sqx: 0.04, sqy: 0.05 });
+    if (k <= 0) continue;
+    // in the rapid scan the top invoices fly off to the left, one per sweep, stamped
+    const per = (T.rapidEnd - T.rapid) / 5, tGo = i === 0 ? T.rapid : T.rapid + per * i, gone = i <= 5 ? ease.expoIn(seg(t, tGo - 0.02, tGo + 0.22)) : 0;
+    if (gone >= 1) continue;
+    const x = INV.x + p.dx * (1 - (i === 0 ? 1 : 0)) - gone * 900, y = INV.y + p.dy * (i === 0 ? 0 : 1) - (1 - k) * 1500 + gone * -120;
+    const rot = (i === 0 ? 0 : p.rot) - gone * 0.3;
+    g.save(); g.translate(x + INV.w / 2, y + INV.h / 2); g.rotate(rot); g.scale(land.sx, land.sy); g.translate(-INV.w / 2, -INV.h / 2);
+    g.shadowColor = 'rgba(0,12,10,0.4)'; g.shadowBlur = 40 * DPR; g.shadowOffsetY = 14 * DPR; rrect(0, 0, INV.w, INV.h, 14); g.fillStyle = C.paper; g.fill(); g.shadowColor = 'transparent';
+    const bY = beamAt(t) && t >= T.beamIn ? beamAt(t).P[0][1] : -1;
+    const isTop = i === 0 || (rapidI >= 0 && i === rapidI);
+    drawInvoice(0, 0, INV.w, INV.h, i === 0, t, yy => (i === 0 && t >= T.scan) ? sstep(yy - 10, yy + 30, t < T.scanned ? bY - y : 1e9) : 0);
+    if (gone > 0 || (i === 0 && t >= T.scanned)) {   // the stamp
+      const st = OM.popIn(t, i === 0 ? T.scanned : tGo - 0.12, { s0: 1.4, ds: -0.4, rise: 0 });
+      g.save(); g.translate(INV.w - 170, INV.h - 230); g.rotate(-0.18); g.scale(st.s, st.s); g.globalAlpha = st.op;
+      g.strokeStyle = C.teal; g.lineWidth = 6; rrect(-130, -40, 260, 80, 12); g.stroke();
+      txt('✓ DIREKOD', 0, 14, F.sans(800, 36), C.teal, { align: 'center', track: 2 }); g.restore();
+    }
+    g.restore();
+  }
+  // extracted fields pop out on the right as the beam reads them
+  if (t >= T.scan && t < T.rapid + 0.2) {
+    const out = 1 - sstep(T.rapid - 0.1, T.rapid + 0.15, t);
+    FIELDS.forEach((f, i) => {
+      const tf = lerp(T.scan, T.scanned, (f.y + f.h / 2 - 40) / (INV.h - 80)) + 0.05, p = OM.popIn(t, tf, { s0: 0.7, ds: 0.3 });
+      chip(f.label + ' ✓', 760, INV.y + 140 + i * 74 + p.dy, F.sans(800, 26), C.deep, C.mint, p.op * out, p.s, 20, 54);
+    });
+  }
+}
+
+function drawChat(t) {
+  if (t < T.toChat || t > T.inD + 0.2) return;
+  const p = OM.popIn(t, T.toChat + 0.35, { rise: 0, s0: 0.97 }), fade = 1 - sstep(T.dive + 0.1, T.dived - 0.15, t);   // the chat falls away as we dive into its chart
+  if (fade <= 0) return;
+  g.save(); g.globalAlpha = fade;
+  card(CHAT.x, CHAT.y, CHAT.w, CHAT.h, 34, p.op, C.cream, true);
+  g.globalAlpha = fade * p.op;
+  // header
+  g.beginPath(); g.arc(CHAT.x + 60, CHAT.y + 60, 30, 0, 6.2832); g.fillStyle = C.teal; g.fill();
+  txt('AI', CHAT.x + 60, CHAT.y + 70, F.sans(800, 26), '#fff', { align: 'center' });
+  txt('Pembantu Data', CHAT.x + 108, CHAT.y + 56, F.sans(800, 32), C.ink);
+  g.beginPath(); g.arc(CHAT.x + 116, CHAT.y + 80, 7, 0, 6.2832); g.fillStyle = C.teal; g.fill();
+  txt('dalam talian · data syarikat anda', CHAT.x + 130, CHAT.y + 88, F.sans(700, 22), C.mute);
+  g.fillStyle = C.line; g.fillRect(CHAT.x + 24, CHAT.y + 116, CHAT.w - 48, 2);
+  const bubbleR = (s, tIn, y) => {   // user: right, teal
+    if (t < tIn) return; const b = OM.popIn(t, tIn, { s0: 0.8, ds: 0.2, rise: 30 }), w = W_(s, F.sans(700, 30)) + 48;
+    g.save(); g.translate(CHAT.x + CHAT.w - 30 - w / 2, y + b.dy); g.scale(b.s, b.s); g.globalAlpha *= b.op;
+    rrect(-w / 2, -36, w, 72, 30); g.fillStyle = C.teal; g.fill(); txt(s, 0, 10, F.sans(700, 30), '#fff', { align: 'center' }); g.restore();
+  };
+  const dots = (tIn, tOut, y) => {
+    if (t < tIn || t >= tOut) return;
+    rrect(CHAT.x + 30, y - 32, 120, 64, 30); g.fillStyle = C.card; g.fill();
+    for (let i = 0; i < 3; i++) { const a = 0.3 + 0.7 * Math.max(0, Math.sin((t - tIn) * 12 - i * 0.9)); g.globalAlpha = fade * a; g.beginPath(); g.arc(CHAT.x + 66 + i * 24, y, 8, 0, 6.2832); g.fillStyle = C.mute; g.fill(); }
+    g.globalAlpha = fade * p.op;
+  };
+  bubbleR('Berapa belanja pembekal bulan lepas?', T.send1, CHAT.y + 180);
+  dots(T.dots1, T.ans1, CHAT.y + 280);
+  if (t >= T.ans1) {   // the answer, with the chart the camera will dive into
+    const b = OM.popIn(t, T.ans1, { s0: 0.85, ds: 0.15, rise: 30 });
+    g.save(); g.globalAlpha *= b.op; g.translate(0, b.dy);
+    rrect(CHAT.x + 30, CHAT.y + 240, 600, 360, 30); g.fillStyle = C.card; g.fill();
+    txt('RM 182,400', CHAT.x + 60, CHAT.y + 304, F.sans(800, 44), C.ink);
+    txt('▲ 12% berbanding bulan sebelum', CHAT.x + 60, CHAT.y + 346, F.sans(700, 24), C.teal);
+    g.restore();
+  }
+  bubbleR('Pembekal paling mahal?', T.send2, CHAT.y + 640);
+  dots(T.dots2, T.ans2, CHAT.y + 725);
+  if (t >= T.ans2) {
+    const b = OM.popIn(t, T.ans2, { s0: 0.85, ds: 0.15, rise: 30 });
+    g.save(); g.globalAlpha *= b.op; g.translate(0, b.dy);
+    rrect(CHAT.x + 30, CHAT.y + 690, 560, 72, 30); g.fillStyle = C.card; g.fill();
+    txt('Syarikat Maju Jaya · RM 41,200', CHAT.x + 58, CHAT.y + 737, F.sans(800, 28), C.ink);
+    g.restore();
+  }
+  // input bar — the beam is its underline
+  rrect(INPUT.x, INPUT.y, INPUT.w, INPUT.h, 22); g.fillStyle = C.card; g.fill();
+  const typing = t >= T.type1 && t < T.send1 ? OM.typeOn(t, T.type1, 'Berapa belanja pembekal bulan lepas?', { cps: 52 }) : t >= T.type2 && t < T.send2 ? OM.typeOn(t, T.type2, 'Pembekal paling mahal?', { cps: 60 }) : null;
+  if (typing) { txt(typing.str, INPUT.x + 26, INPUT.y + 49, F.sans(700, 28), C.ink); if (typing.caret) { g.fillStyle = C.teal; g.fillRect(INPUT.x + 28 + W_(typing.str, F.sans(700, 28)), INPUT.y + 20, 3, 36); } }
+  else txt('Tanya apa-apa tentang data anda…', INPUT.x + 26, INPUT.y + 49, F.sans(700, 28), '#B5AFA3');
+  g.restore();
+}
+
+function drawChart(t) {   // drawn in its own units inside the bubble; readable once the camera has dived in
+  if (t < T.ans1 || t > T.inD + 0.2) return;
+  const b = OM.popIn(t, T.ans1 + 0.1, { rise: 0, s0: 0.9 }), fade = 1 - sstep(T.toD, T.toD + 0.3, t);
+  const dy = (1 - spring(t - T.ans1, 0.62, 18)) * 30;
+  setM(mul(VIEW, [CS, 0, 0, CS, CR.x, CR.y + dy]));
+  g.save(); g.globalAlpha = b.op * fade;
+  rrect(0, 0, CL.w, CL.h, 24); g.fillStyle = '#F7F4EC'; g.fill();
+  const bm = TRK.beamX ?? mx(7);
+  const detail = sstep(1.3, 2.2, CAM.zoom);
+  txt('Jualan bulanan (RM ribu)', 40, 52, F.sans(800, 26), C.mute, { op: detail });
+  for (let i = 0; i < 3; i++) { g.fillStyle = C.line; g.fillRect(40, my(30 + i * 30), CL.w - 70, 2); }
+  SALES.forEach((v, i) => { const k = ease.expoOut(seg(t, T.ans1 + 0.15 + i * 0.04, T.ans1 + 0.5 + i * 0.04)); rrect(mx(i) - 22, my(v * k), 44, my(0) - my(v * k), 8); g.fillStyle = i === 7 ? C.teal : '#9BCFC2'; g.fill(); });
+  MONTHS.forEach((m, i) => txt(m, mx(i), CL.h - 26, F.sans(700, 22), i <= 7 ? C.mute : C.amber, { align: 'center', op: detail }));
+  // the forecast is drawn only behind the beam: it reveals the future
+  if (t >= T.sweep - 0.05) {
+    g.save(); g.beginPath(); g.rect(mx(7), 0, Math.max(0, bm - mx(7)), CL.h); g.clip();
+    g.beginPath(); FCAST.forEach((v, i) => { const x = mx(7 + i); g.lineTo(x, my(v + 6 + i * 3)); }); for (let i = FCAST.length - 1; i >= 0; i--) g.lineTo(mx(7 + i), my(v_ = FCAST[i] - 6 - i * 3));
+    g.closePath(); g.fillStyle = 'rgba(242,181,68,0.22)'; g.fill();
+    g.setLineDash([14, 10]); g.strokeStyle = C.amber; g.lineWidth = 6; g.beginPath(); FCAST.forEach((v, i) => g.lineTo(mx(7 + i), my(v))); g.stroke(); g.setLineDash([]);
+    FCAST.forEach((v, i) => { if (i && mx(7 + i) < bm) { g.beginPath(); g.arc(mx(7 + i), my(v), 9, 0, 6.2832); g.fillStyle = C.amber; g.fill(); } });
+    g.restore();
+  }
+  if (detail > 0.01 && t >= T.dived - 0.2) {
+    const h1 = OM.popIn(t, T.dived - 0.1);
+    chip('HARI INI', mx(7), 88, F.sans(800, 20), C.deep, C.mint, h1.op * detail, h1.s, 14, 38);
+    const w = OM.popIn(t, T.warn, { s0: 0.7, ds: 0.3 }), im = OM.impact(t, T.warn + 0.05, { sqx: 0.08, sqy: 0.1 });
+    chip('Disember: +35% ▲', mx(10.2), my(104), F.sans(800, 24), C.deep, C.amber, w.op * detail, w.s * im.sx, 16, 44);
+  }
+  g.restore();
+}
+let v_;
+
+function drawCards(t) {
+  if (t < T.toD + 0.2 || t > T.end + 0.2) return;
+  // four AI capabilities slam onto the beam, each on top of the last
+  const n = AICARDS.length;
+  AICARDS.forEach((s, i) => {
+    const tc = T.cards[i]; if (t < tc - 0.2) return;
+    const k = clamp((t - (tc - 0.2)) / 0.2), fall = (1 - ease.expoIn(k)) * -900, im = OM.impact(t, tc, { sqx: 0.06, sqy: 0.12, decay: 9 });
+    const above = T.cards.filter(c => t >= c + 0.0).length - 1 - i;   // how many landed on top of me
+    const y = SHELF_Y - 230 - i * 26 + fall, top = i === n - 1;
+    let op = t < T.cta ? 1 : top ? 1 : 1 - sstep(T.cta, T.cta + 0.25, t);
+    if (top && t >= T.cta) {   // the top card becomes the CTA card
+      const m = OM.morphRect(t, T.cta, T.cta + 0.55, { x: 160, y: SHELF_Y - 230 - i * 26, w: 680, h: 210, r: 28 }, { ...CTA, r: 34 }, { curve: ease.expoOut });
+      card(m.x, m.y, m.w, m.h, m.r, 1, C.card, true); drawCTA(t, 1 - sstep(T.cta + 0.25, T.cta + 0.55, t)); return;
+    }
+    g.save(); g.translate(CX, y + 105); g.scale(im.sx, im.sy); g.translate(-CX, -(y + 105)); g.globalAlpha = op;
+    card(160, y, 680, 210, 28, 1, i % 2 ? C.cream : C.card, true);
+    g.globalAlpha = op * (above > 0 ? 0.55 : 1);
+    chip('AI · 0' + (i + 1), 260, y + 62, F.sans(800, 22), C.teal, C.tealL, 1, 1, 16, 42);
+    txt(s, 200, y + 150, F.sans(800, 46), C.ink);
+    g.restore();
+  });
+}
+function drawCTA(t, cover) {
+  if (t < T.cta) return;
+  const L = CTA.x + 44;
+  const a = OM.popIn(t, T.cta + 0.35), b = OM.wordRise(t, T.cta + 0.45);
+  const pw = W_('Data kekal milik anda · patuh PDPA', F.sans(800, 26)) + 40;
+  chip('Data kekal milik anda · patuh PDPA', L + pw / 2, CTA.y + 70 + a.dy, F.sans(800, 26), C.teal, C.tealL, a.op, a.s, 20, 52);
+  txt('Semakan Kesediaan AI', L, CTA.y + 170 + b.y, F.sans(800, 50), C.ink, { op: b.op });
+  txt('45 minit · PERCUMA', L, CTA.y + 228 + b.y, F.sans(800, 34), C.teal, { op: b.op });
+  ['Proses mana sesuai untuk AI', 'Data apa yang perlu disusun', 'Anggaran kos & penjimatan'].forEach((s, i) => {
+    const w = OM.wordRise(t, T.cta + 0.7 + i * 0.12, { dist: 18 }), y = CTA.y + 320 + i * 82;
+    g.save(); g.globalAlpha *= w.op; g.beginPath(); g.arc(L + 22, y - 10 + w.y, 22, 0, 6.2832); g.fillStyle = C.mint; g.fill(); check(L + 22, y - 10 + w.y, 1, C.deep, 4); g.restore();
+    txt(s, L + 64, y + w.y, F.sans(700, 32), C.ink, { op: w.op });
+  });
+  const bt = OM.popIn(t, T.cta + 1.0), pr = OM.press(t, T.tap, { depth: 0.06 });
+  g.save(); g.translate(BTN.x + BTN.w / 2, BTN.y + BTN.h / 2); g.scale(bt.s * pr.s, bt.s * pr.s); g.globalAlpha *= bt.op;
+  rrect(-BTN.w / 2, -BTN.h / 2, BTN.w, BTN.h, BTN.h / 2); g.fillStyle = C.mint; g.fill();
+  txt('Tempah semakan →', 0, 14, F.sans(800, 38), C.deep, { align: 'center', op: 1 - sstep(T.zoom + 0.1, T.zoom + 0.4, t) });
+  g.restore();
+  if (cover > 0) { g.save(); g.globalAlpha = cover; rrect(CTA.x, CTA.y, CTA.w, CTA.h, 34); g.fillStyle = C.card; g.fill(); g.restore(); }
+}
+
+function drawFinger(t) {
+  const f = finger(t); TRK.finger = f ? [f.x, f.y] : null; if (!f) return;
+  g.save(); g.globalAlpha = f.op;
+  const pr = t - f.tap; if (pr > 0 && pr < 0.6) { g.beginPath(); g.arc(f.x, f.y, 40 + pr * 150, 0, 6.2832); g.strokeStyle = C.cream; g.globalAlpha = f.op * 0.4 * (1 - pr / 0.6); g.lineWidth = 4; g.stroke(); g.globalAlpha = f.op; }
+  const r = 44 - 8 * f.down;
+  g.shadowColor = 'rgba(0,0,0,0.35)'; g.shadowBlur = 24 * DPR; g.shadowOffsetY = 8 * DPR;
+  g.beginPath(); g.arc(f.x, f.y, r, 0, 6.2832); g.fillStyle = 'rgba(255,255,255,0.8)'; g.fill(); g.shadowColor = 'transparent';
+  g.lineWidth = 5; g.strokeStyle = C.deep; g.stroke(); g.beginPath(); g.arc(f.x, f.y, 11 + 5 * f.down, 0, 6.2832); g.fillStyle = C.deep; g.fill();
+  g.restore();
+}
+
+function drawEnd(t) {
+  if (t < T.zoom + 0.35) return;
+  // the button has filled the frame: the end card is the button's mint
+  g.save(); g.globalAlpha = sstep(T.zoom + 0.35, T.filled, t); g.fillStyle = C.mint; g.fillRect(0, 0, W, H); g.restore();
+  if (t < T.end) return;
+  const top = OM.popIn(t, T.end + 0.35);
+  chip('BACA INVOIS · CHATBOT · RAMALAN', CX, 640 + top.dy, F.sans(800, 28), C.mint, C.deep, top.op, top.s, 26, 62);
+  MARK.letters.forEach((L, i) => {
+    const d = OM.letterDrop(t, T.end + 0.1, i, { stagger: 0.045, dist: 60 });
+    txt(L.ch, L.x, 850, L.it ? F.ital(124) : F.serif(124), L.it ? C.teal : C.deep, { op: d.op, dy: d.y, sx: d.sx, sy: d.sy });
+  });
+  const lk = ease.expoOut(seg(t, T.end + 0.55, T.end + 1.1));
+  g.strokeStyle = C.deep; g.lineWidth = 7; g.lineCap = 'round'; g.beginPath(); g.moveTo(CX - (MARK.w / 2 - 10) * lk, 880); g.lineTo(CX + (MARK.w / 2 - 10) * lk, 880); g.stroke();
+  const tg = OM.wordRise(t, T.end + 0.75);
+  txt('AI praktikal untuk PKS Malaysia.', CX, 970, F.ital(52), C.deep, { align: 'center', op: tg.op, dy: tg.y });
+  const u = OM.popIn(t, T.end + 0.95), im = OM.impact(t, T.end + 1.1, { sqx: 0.05, sqy: 0.08 });
+  g.save(); g.translate(CX, 1120); g.scale(u.s * im.sx, u.s * im.sy); g.globalAlpha = u.op;
+  rrect(-330, -58, 660, 116, 58); g.fillStyle = C.deep; g.fill();
+  txt('rungkaikusut.com', 0, 17, F.sans(800, 50), C.mint, { align: 'center' }); g.restore();
+  const l1 = OM.wordRise(t, T.end + 1.15), l2 = OM.wordRise(t, T.end + 1.25);
+  txt('Semakan kesediaan AI · 45 minit percuma', CX, 1262, F.sans(800, 32), C.deep, { align: 'center', op: l1.op, dy: l1.y });
+  txt('Data anda kekal milik anda', CX, 1318, F.sans(700, 32), C.teal, { align: 'center', op: l2.op, dy: l2.y });
+}
+
+function drawHeadlines(t) {
+  const L = SAFE.x0 + 8;
+  head('Staf anda masih taip', L, 352, F.sans(800, 56), C.cream, T.h1, T.head2 - 0.05, t);
+  head('invois satu-satu?', L, 458, F.ital(104), C.mint, T.h2, T.head2, t);
+  // the backlog counter: counts up as the pile lands, then down as the beam clears it
+  if (t >= T.cnt && t < T.toChat + 0.3) {
+    const up = Math.round(1247 * ease.expoOut(seg(t, T.cnt, 2.0))), down = Math.round(1247 * (1 - ease.smooth(seg(t, T.rapid, T.rapidEnd))));
+    const n = t < T.rapid ? up : down, done = t >= T.rapidEnd, p = OM.popIn(t, T.cnt), o = OM.liftOut(t, T.toChat, { dur: 0.24, dist: 40 });
+    const s = done ? '✓ 1,247 invois siap' : (t < T.rapid ? n.toLocaleString('en-US') + ' invois bulan ni' : 'Tinggal: ' + n.toLocaleString('en-US'));
+    const im = OM.impact(t, T.rapidEnd, { sqx: 0.08, sqy: 0.1 }), w = W_(s, F.sans(800, 30)) + 44;
+    chip(s, L + w / 2, 532 + p.dy + o.dy, F.sans(800, 30), done ? C.deep : C.cream, done ? C.mint : '#24524B', p.op * o.op, p.s * im.sx, 22, 58);
+  }
+  head('AI baca invois', L, 352, F.serif(104), C.cream, T.head2, T.toChat - 0.05, t);
+  head('dalam 2 saat.', L, 452, F.ital(104), C.mint, T.head2 + 0.12, T.toChat - 0.02, t);
+  head('Tanya data anda', L, 380, F.serif(104), C.cream, T.chatHead, T.dive - 0.05, t);
+  head('macam WhatsApp.', L, 482, F.ital(104), C.mint, T.chatHead + 0.12, T.dive - 0.02, t);
+  head('Ramal jualan & stok', L, 380, F.serif(96), C.cream, T.fcHead, T.toD - 0.05, t);
+  head('sebelum terlambat.', L, 478, F.ital(96), C.amber, T.fcHead + 0.12, T.toD - 0.02, t);
+  head('AI praktikal,', L, 380, F.serif(110), C.cream, T.dHead, T.cta - 0.05, t);
+  head('bukan gimik.', L, 484, F.ital(110), C.mint, T.dHead + 0.12, T.cta - 0.02, t);
+  head('Mula dengan', L, 380, F.serif(110), C.cream, T.ctaHead, T.zoom + 0.3, t);
+  head('satu proses.', L, 484, F.ital(110), C.mint, T.ctaHead + 0.12, T.zoom + 0.33, t);
+}
+
+function drawSafe() {
+  g.save(); g.fillStyle = 'rgba(228,111,146,0.2)';
+  g.fillRect(0, 0, W, SAFE.y0); g.fillRect(0, SAFE.y1, W, H - SAFE.y1); g.fillRect(0, SAFE.y0, SAFE.x0, SAFE.y1 - SAFE.y0); g.fillRect(SAFE.x1, SAFE.y0, W - SAFE.x1, SAFE.y1 - SAFE.y0);
+  g.strokeStyle = C.pink; g.lineWidth = 3; g.setLineDash([12, 10]); g.strokeRect(SAFE.x0, SAFE.y0, SAFE.x1 - SAFE.x0, SAFE.y1 - SAFE.y0); g.restore();
+}
+
+let MARK = { letters: [] };
+function measure() {
+  let tot = 0; const ws = [];
+  for (const [s, it] of [['Rungkai ', false], ['Kusut', true]]) for (const ch of s) { const w = W_(ch, it ? F.ital(124) : F.serif(124)); ws.push({ ch, it, w }); tot += w; }
+  let x = CX - tot / 2; MARK.letters = ws.map(l => { const o = { ch: l.ch, it: l.it, x }; x += l.w; return o; }).filter(l => l.ch !== ' ');
+  MARK.w = tot;
+}
+// beamX for the chart is decided before drawing it
+const _seek = seek;
+function seekWrap(t) { const b = beamAt(clamp(t, 0, DUR)); TRK.beamX = b && b.chartX !== undefined ? b.chartX : null; return _seek(t); }
+
+function events() {
+  const E = [];
+  E.push({ t: T.h1, kind: 'word', pan: -0.4, v: 0.6 }, { t: T.h2, kind: 'hit', pan: -0.2, v: 0.7 });
+  PILE.forEach((p, i) => E.push({ t: p.t + 0.12, kind: 'paper', pan: (i % 2 ? 0.2 : -0.2), v: 0.5 + 0.06 * (6 - i) }));
+  E.push({ t: T.beamIn, kind: 'beamOn', pan: 0, v: 0.8 }, { t: T.scan, kind: 'scan', pan: 0, v: 0.7, dur: T.scanned - T.scan });
+  FIELDS.forEach((f, i) => E.push({ t: lerp(T.scan, T.scanned, (f.y + f.h / 2 - 40) / (INV.h - 80)) + 0.05, kind: 'blip', pan: 0.4, v: 0.6, i }));
+  E.push({ t: T.scanned, kind: 'stamp', pan: 0.3, v: 0.8 });
+  for (let i = 0; i < 5; i++) E.push({ t: T.rapid + i * (T.rapidEnd - T.rapid) / 5, kind: 'swipe', pan: -0.3, v: 0.5 + 0.08 * i, i });
+  E.push({ t: T.rapidEnd, kind: 'done', pan: 0, v: 0.9 }, { t: T.toChat, kind: 'whoosh', pan: 0, v: 0.8, dur: 0.75 });
+  for (let i = 0; i < 12; i++) E.push({ t: T.type1 + i * 0.06, kind: 'key', pan: 0, v: 0.35 });
+  E.push({ t: T.send1, kind: 'send', pan: 0.4, v: 0.7 }, { t: T.ans1, kind: 'reply', pan: -0.3, v: 0.8, i: 0 });
+  for (let i = 0; i < 6; i++) E.push({ t: T.type2 + i * 0.06, kind: 'key', pan: 0, v: 0.35 });
+  E.push({ t: T.send2, kind: 'send', pan: 0.4, v: 0.7 }, { t: T.ans2, kind: 'reply', pan: -0.3, v: 0.8, i: 1 });
+  E.push({ t: T.dive, kind: 'dive', pan: 0, v: 0.9, dur: T.dived - T.dive }, { t: T.sweep, kind: 'sweep', pan: 0, v: 0.7, dur: T.swept - T.sweep });
+  E.push({ t: T.warn, kind: 'warn', pan: 0.4, v: 0.8 });
+  E.push({ t: T.toD, kind: 'whoosh', pan: 0, v: 0.9, dur: 0.6 });
+  T.cards.forEach((tc, i) => E.push({ t: tc, kind: 'slam', pan: 0, v: 0.75 + 0.07 * i, i }));
+  E.push({ t: T.cta, kind: 'morph', pan: 0, v: 0.6 });
+  [0, 1, 2].forEach(i => E.push({ t: T.cta + 0.7 + i * 0.12, kind: 'blip', pan: -0.2, v: 0.5, i: i + 1 }));
+  E.push({ t: T.tap, kind: 'tap', pan: 0.2, v: 0.9 }, { t: T.zoom, kind: 'dive', pan: 0, v: 0.9, dur: T.filled - T.zoom });
+  MARK.letters.forEach((l, i) => { if (i % 3 === 0) E.push({ t: T.end + 0.1 + i * 0.045 + 0.06, kind: 'letter', pan: 0, v: 0.35 }); });
+  E.push({ t: T.end + 1.1, kind: 'final', pan: 0, v: 1 });
+  return { T, dur: DUR, rest: [T.restA, T.dive - 0.05], events: E.sort((a, b) => a.t - b.t) };
+}
+function trackPts(t) {
+  seekWrap(t); const pts = [];
+  const b = TRK.beam; if (b) for (let i = 0; i < N; i += 12) pts.push(OM.project(VIEW, b.P[i][0], b.P[i][1]));
+  if (TRK.finger) pts.push(OM.project(VIEW, ...TRK.finger));
+  return pts;
+}
+window.__meta = { dur: DUR, fps: 30, size: [W, H], safe: SAFE };
+window.__seek = async t => seekWrap(t);
+window.__events = events;
+window.__motion = (t0, t1) => {
+  const a = trackPts(t0), c0 = CAM, b = trackPts(t1), c1 = CAM; trackPts((t0 + t1) / 2); const cm = CAM;
+  let d = OM.screenTravel(c0, c1, cm, { W, H });
+  for (let i = 0; i < Math.min(a.length, b.length); i++) d = Math.max(d, Math.hypot(a[i][0] - b[i][0], a[i][1] - b[i][1]));
+  return d;
+};
+window.__ready = Promise.all([F.sans(700, 40), F.sans(800, 40), F.serif(100), F.ital(100)].map(f => document.fonts.load(f)))
+  .then(() => { measure(); seekWrap(+Q.get('t') || 0); return true; });
+if (Q.has('play')) window.__ready.then(() => { const t0 = performance.now(); const loop = () => { seekWrap(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop); }; loop(); });
+</script>
+</body>
+</html>
