@@ -57,7 +57,7 @@ const SALES = [42, 48, 45, 55, 60, 57, 66, 72], FCAST = [72, 78, 83, 90, 97];   
 const mx = i => 60 + i * (CL.w - 100) / 11, my = v => CL.h - 70 - v / 110 * (CL.h - 130);
 // section D: four capability cards slam onto the beam, then the top one becomes the CTA
 const SHELF_Y = D + 1180;
-const AICARDS = ['Baca invois & borang', 'Chatbot data syarikat', 'Ramalan jualan & stok', 'Laporan automatik'];
+const AICARDS = ['Baca invois & borang', 'Sistem & panel admin', 'Ramalan jualan & stok', 'Laporan automatik'];
 const CTA = { x: 90, y: D + 600, w: 822, h: 760 };
 const BTN = { x: 130, y: D + 1220, w: 742, h: 100 };
 
@@ -220,7 +220,7 @@ function drawInvoice(x, y, w, h, full, t, scanned) {
   });
   g.fillStyle = C.line; g.fillRect(x + 40, y + 600, w - 80, 3);
   txt('JUMLAH', x + 40, y + 682, F.sans(800, 26), C.mute, { track: 2 });
-  txt('RM 4,820.80', x + w - 40, y + 684, F.sans(800, 44), C.ink, { align: 'right' });
+  txt('RM 4,530.80', x + w - 40, y + 684, F.sans(800, 44), C.ink, { align: 'right' });
   // fields light up as the beam passes them
   FIELDS.forEach(f => {
     const passed = scanned(y + f.y + f.h / 2); if (passed <= 0) return;
@@ -265,32 +265,20 @@ function drawPile(t) {
 
 function drawChat(t) {
   if (t < T.toChat || t > T.inD + 0.2) return;
-  const p = OM.popIn(t, T.toChat + 0.35, { rise: 0, s0: 0.97 }), fade = 1 - sstep(T.dive + 0.1, T.dived - 0.15, t);   // the chat falls away as we dive into its chart
+  const p = OM.popIn(t, T.toChat + 0.35, { rise: 0, s0: 0.97 }), fade = 1 - sstep(T.dive + 0.1, T.dived - 0.15, t);   // the report falls away as we dive into its chart
   if (fade <= 0) return;
   g.save(); g.globalAlpha = fade;
   card(CHAT.x, CHAT.y, CHAT.w, CHAT.h, 34, p.op, C.cream, true);
   g.globalAlpha = fade * p.op;
-  // header
-  g.beginPath(); g.arc(CHAT.x + 60, CHAT.y + 60, 30, 0, 6.2832); g.fillStyle = C.teal; g.fill();
-  txt('AI', CHAT.x + 60, CHAT.y + 70, F.sans(800, 26), '#fff', { align: 'center' });
-  txt('Pembantu Data', CHAT.x + 108, CHAT.y + 56, F.sans(800, 32), C.ink);
-  g.beginPath(); g.arc(CHAT.x + 116, CHAT.y + 80, 7, 0, 6.2832); g.fillStyle = C.teal; g.fill();
-  txt('dalam talian · data syarikat anda', CHAT.x + 130, CHAT.y + 88, F.sans(700, 22), C.mute);
+  // header: a report the system writes by itself from the invoices it just read
+  rrect(CHAT.x + 30, CHAT.y + 30, 60, 60, 16); g.fillStyle = C.teal; g.fill();
+  for (let i = 0; i < 3; i++) { g.fillStyle = '#fff'; g.fillRect(CHAT.x + 44, CHAT.y + 46 + i * 11, 32 - i * 8, 5); }
+  txt('Laporan Belanja · Okt', CHAT.x + 108, CHAT.y + 56, F.sans(800, 32), C.ink);
+  txt('dijana automatik dari 1,247 invois', CHAT.x + 108, CHAT.y + 88, F.sans(700, 22), C.mute);
   g.fillStyle = C.line; g.fillRect(CHAT.x + 24, CHAT.y + 116, CHAT.w - 48, 2);
-  const bubbleR = (s, tIn, y) => {   // user: right, teal
-    if (t < tIn) return; const b = OM.popIn(t, tIn, { s0: 0.8, ds: 0.2, rise: 30 }), w = W_(s, F.sans(700, 30)) + 48;
-    g.save(); g.translate(CHAT.x + CHAT.w - 30 - w / 2, y + b.dy); g.scale(b.s, b.s); g.globalAlpha *= b.op;
-    rrect(-w / 2, -36, w, 72, 30); g.fillStyle = C.teal; g.fill(); txt(s, 0, 10, F.sans(700, 30), '#fff', { align: 'center' }); g.restore();
-  };
-  const dots = (tIn, tOut, y) => {
-    if (t < tIn || t >= tOut) return;
-    rrect(CHAT.x + 30, y - 32, 120, 64, 30); g.fillStyle = C.card; g.fill();
-    for (let i = 0; i < 3; i++) { const a = 0.3 + 0.7 * Math.max(0, Math.sin((t - tIn) * 12 - i * 0.9)); g.globalAlpha = fade * a; g.beginPath(); g.arc(CHAT.x + 66 + i * 24, y, 8, 0, 6.2832); g.fillStyle = C.mute; g.fill(); }
-    g.globalAlpha = fade * p.op;
-  };
-  bubbleR('Berapa belanja pembekal bulan lepas?', T.send1, CHAT.y + 180);
-  dots(T.dots1, T.ans1, CHAT.y + 280);
-  if (t >= T.ans1) {   // the answer, with the chart the camera will dive into
+  const label = (s, tIn, y) => { if (t < tIn) return; const w = OM.wordRise(t, tIn, { dist: 16 }); txt(s, CHAT.x + 34, y + w.y, F.sans(800, 22), C.mute, { op: w.op, track: 2 }); };
+  label('BELANJA PEMBEKAL BULAN LEPAS', T.send1, CHAT.y + 196);
+  if (t >= T.ans1) {   // the figure, with the chart the camera will dive into
     const b = OM.popIn(t, T.ans1, { s0: 0.85, ds: 0.15, rise: 30 });
     g.save(); g.globalAlpha *= b.op; g.translate(0, b.dy);
     rrect(CHAT.x + 30, CHAT.y + 240, 600, 360, 30); g.fillStyle = C.card; g.fill();
@@ -298,8 +286,7 @@ function drawChat(t) {
     txt('▲ 12% berbanding bulan sebelum', CHAT.x + 60, CHAT.y + 346, F.sans(700, 24), C.teal);
     g.restore();
   }
-  bubbleR('Pembekal paling mahal?', T.send2, CHAT.y + 640);
-  dots(T.dots2, T.ans2, CHAT.y + 725);
+  label('PEMBEKAL TERTINGGI', T.send2, CHAT.y + 652);
   if (t >= T.ans2) {
     const b = OM.popIn(t, T.ans2, { s0: 0.85, ds: 0.15, rise: 30 });
     g.save(); g.globalAlpha *= b.op; g.translate(0, b.dy);
@@ -307,11 +294,11 @@ function drawChat(t) {
     txt('Syarikat Maju Jaya · RM 41,200', CHAT.x + 58, CHAT.y + 737, F.sans(800, 28), C.ink);
     g.restore();
   }
-  // input bar — the beam is its underline
+  // status bar: the beam is its underline
   rrect(INPUT.x, INPUT.y, INPUT.w, INPUT.h, 22); g.fillStyle = C.card; g.fill();
-  const typing = t >= T.type1 && t < T.send1 ? OM.typeOn(t, T.type1, 'Berapa belanja pembekal bulan lepas?', { cps: 52 }) : t >= T.type2 && t < T.send2 ? OM.typeOn(t, T.type2, 'Pembekal paling mahal?', { cps: 60 }) : null;
-  if (typing) { txt(typing.str, INPUT.x + 26, INPUT.y + 49, F.sans(700, 28), C.ink); if (typing.caret) { g.fillStyle = C.teal; g.fillRect(INPUT.x + 28 + W_(typing.str, F.sans(700, 28)), INPUT.y + 20, 3, 36); } }
-  else txt('Tanya apa-apa tentang data anda…', INPUT.x + 26, INPUT.y + 49, F.sans(700, 28), '#B5AFA3');
+  const pct = Math.round(100 * ease.smooth(seg(t, T.type1, T.ans2)));
+  if (pct < 100) { rrect(INPUT.x + 6, INPUT.y + 6, (INPUT.w - 12) * pct / 100, INPUT.h - 12, 18); g.fillStyle = C.tealL; g.fill(); txt('Menjana laporan… ' + pct + '%', INPUT.x + 26, INPUT.y + 49, F.sans(800, 28), C.teal); }
+  else txt('✓ Dikemas kini automatik setiap hari', INPUT.x + 26, INPUT.y + 49, F.sans(800, 28), C.teal);
   g.restore();
 }
 
@@ -373,8 +360,8 @@ function drawCTA(t, cover) {
   if (t < T.cta) return;
   const L = CTA.x + 44;
   const a = OM.popIn(t, T.cta + 0.35), b = OM.wordRise(t, T.cta + 0.45);
-  const pw = W_('Data kekal milik anda · patuh PDPA', F.sans(800, 26)) + 40;
-  chip('Data kekal milik anda · patuh PDPA', L + pw / 2, CTA.y + 70 + a.dy, F.sans(800, 26), C.teal, C.tealL, a.op, a.s, 20, 52);
+  const pw = W_('Data milik anda · ikut keperluan PDPA', F.sans(800, 26)) + 40;
+  chip('Data milik anda · ikut keperluan PDPA', L + pw / 2, CTA.y + 70 + a.dy, F.sans(800, 26), C.teal, C.tealL, a.op, a.s, 20, 52);
   txt('Semakan Kesediaan AI', L, CTA.y + 170 + b.y, F.sans(800, 50), C.ink, { op: b.op });
   txt('45 minit · PERCUMA', L, CTA.y + 228 + b.y, F.sans(800, 34), C.teal, { op: b.op });
   ['Proses mana sesuai untuk AI', 'Data apa yang perlu disusun', 'Anggaran kos & penjimatan'].forEach((s, i) => {
@@ -407,7 +394,7 @@ function drawEnd(t) {
   g.save(); g.globalAlpha = sstep(T.zoom + 0.35, T.filled, t); g.fillStyle = C.mint; g.fillRect(0, 0, W, H); g.restore();
   if (t < T.end) return;
   const top = OM.popIn(t, T.end + 0.35);
-  chip('BACA INVOIS · CHATBOT · RAMALAN', CX, 640 + top.dy, F.sans(800, 28), C.mint, C.deep, top.op, top.s, 26, 62);
+  chip('BACA INVOIS · LAPORAN · RAMALAN', CX, 640 + top.dy, F.sans(800, 28), C.mint, C.deep, top.op, top.s, 26, 62);
   MARK.letters.forEach((L, i) => {
     const d = OM.letterDrop(t, T.end + 0.1, i, { stagger: 0.045, dist: 60 });
     txt(L.ch, L.x, 850, L.it ? F.ital(124) : F.serif(124), L.it ? C.teal : C.deep, { op: d.op, dy: d.y, sx: d.sx, sy: d.sy });
@@ -439,8 +426,8 @@ function drawHeadlines(t) {
   }
   head('AI baca invois', L, 352, F.serif(104), C.cream, T.head2, T.toChat - 0.05, t);
   head('dalam 2 saat.', L, 452, F.ital(104), C.mint, T.head2 + 0.12, T.toChat - 0.02, t);
-  head('Tanya data anda', L, 380, F.serif(104), C.cream, T.chatHead, T.dive - 0.05, t);
-  head('macam WhatsApp.', L, 482, F.ital(104), C.mint, T.chatHead + 0.12, T.dive - 0.02, t);
+  head('Terus jadi laporan.', L, 380, F.serif(104), C.cream, T.chatHead, T.dive - 0.05, t);
+  head('Tanpa taip semula.', L, 482, F.ital(104), C.mint, T.chatHead + 0.12, T.dive - 0.02, t);
   head('Ramal jualan & stok', L, 380, F.serif(96), C.cream, T.fcHead, T.toD - 0.05, t);
   head('sebelum terlambat.', L, 478, F.ital(96), C.amber, T.fcHead + 0.12, T.toD - 0.02, t);
   head('AI praktikal,', L, 380, F.serif(110), C.cream, T.dHead, T.cta - 0.05, t);

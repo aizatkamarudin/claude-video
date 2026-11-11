@@ -13,7 +13,7 @@
 ## Concepts
 
 1. **Cahaya imbasan (picked).** One mint scan light carries the whole film.
-2. **Tanya data anda.** The film as one chat with an AI assistant, each answer opening into a chart. Folded into 1 as its middle.
+2. **Tanya data anda.** The film as one chat with an AI assistant. Dropped: a data chatbot isn't a service Rungkai Kusut offers yet.
 3. **Perlumbaan.** A staff member typing invoices against the AI, with a race timer.
 
 Look: chosen fresh. A deep-teal ground with mint light; the camera dives *into* a chart (nested units, as in onetake's
@@ -26,10 +26,10 @@ clearing case) instead of whipping sideways; the ending zooms through the mint b
 | 0–2.1 | **Staf anda masih taip invois satu-satu?** Seven invoices slam into a pile; the backlog counts up to 1,247 | — |
 | 2.15–3.6 | **AI baca invois dalam 2 saat.** The beam appears and reads the top invoice; Pembekal, No. invois, Tarikh and Jumlah light up and pop out; ✓ DIREKOD | scans the invoice |
 | 3.7–5.2 | five more invoices scanned and flung away; the counter runs down to **✓ 1,247 invois siap** | sweeps, one per invoice |
-| 5.3–9.9 | **Tanya data anda macam WhatsApp.** "Berapa belanja pembekal bulan lepas?" → RM 182,400 ▲12% with a chart; "Pembekal paling mahal?" → Syarikat Maju Jaya | the input line under the chat |
+| 5.3–9.9 | **Terus jadi laporan. Tanpa taip semula.** The invoices become an automatic spend report: RM 182,400 ▲12% with a chart; top supplier Syarikat Maju Jaya | the status line under the report |
 | 9.9–12.85 | **Ramal jualan & stok sebelum terlambat.** The camera dives into the chart in the answer; the beam stands up as *HARI INI* and sweeps right, revealing the forecast; *Disember: +35% ▲* | the "today" line |
-| 12.85–14.75 | **AI praktikal, bukan gimik.** Four capability cards slam onto the beam: baca invois, chatbot, ramalan, laporan automatik | the shelf |
-| 14.75–16.75 | **Mula dengan satu proses.** The top card becomes the CTA: Semakan Kesediaan AI, 45 minit, PERCUMA, data kekal milik anda, patuh PDPA | the glowing outline of the button |
+| 12.85–14.75 | **AI praktikal, bukan gimik.** Four capability cards slam onto the beam: baca invois, sistem & panel admin, ramalan, laporan automatik | the shelf |
+| 14.75–16.75 | **Mula dengan satu proses.** The top card becomes the CTA: Semakan Kesediaan AI, 45 minit, PERCUMA, data milik anda, ikut keperluan PDPA | the glowing outline of the button |
 | 16.75–21.5 | the finger taps; the camera zooms through the mint button: **Rungkai Kusut** · *AI praktikal untuk PKS Malaysia.* · rungkaikusut.com | the underline (in ink) |
 
 ## Checks
